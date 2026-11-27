@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:text="CLIENT - CONNECT TO ANY SQL SERVER"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="Works like SSMS on your PC. Paste a normal connection string. Data Source accepts .\SQLEXPRESS, (local), HOST\INSTANCE, an IP, or ip,port (for example 192.168.1.10,1433)."
+            android:textSize="12sp"
+            android:textColor="#334155"
+            android:layout_marginTop="6dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="Connection string"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <EditText
+            android:id="@+id/txtConnStr"
+            android:singleLine="false"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:gravity="top"
+            android:minLines="3"
+            android:typeface="monospace"
+            android:textSize="12sp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="Driver stack"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Spinner
+            android:id="@+id/spinDriver"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="Encryption"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Spinner
+            android:id="@+id/spinEncrypt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <CheckBox
+            android:id="@+id/chkTrustServer"
+            android:text="Trust server certificate (TrustServerCertificate=True)"
+            android:layout_marginTop="10dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Button
+            android:id="@+id/btnLocal"
+            android:text="Fill: local engine (this device)"
+            android:layout_marginTop="10dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <Button
+                android:id="@+id/btnConnect"
+                android:text="Connect"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"/>
+
+            <Button
+                android:id="@+id/btnDisconnect"
+                android:text="Disconnect"
+                android:enabled="false"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txtConnStatus"
+            android:text="NOT CONNECTED"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="#DC2626"
+            android:layout_marginTop="10dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="Databases (tap one to switch with USE)"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:layout_marginTop="24dp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Spinner
+            android:id="@+id/spinDb"
+            android:layout_marginTop="6dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="QUERY (separate batches with GO)"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:layout_marginTop="24dp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <EditText
+            android:id="@+id/txtQuery"
+            android:singleLine="false"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:gravity="top"
+            android:minLines="4"
+            android:typeface="monospace"
+            android:textSize="12sp"
+            android:layout_marginTop="6dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Button
+            android:id="@+id/btnRun"
+            android:text="Run"
+            android:enabled="false"
+            android:layout_marginTop="8dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="RESULTS"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:layout_marginTop="24dp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fillViewport="true"
+            android:layout_marginTop="8dp"
+            android:scrollbars="horizontal">
+
+            <TextView
+                android:id="@+id/txtResults"
+                android:text=""
+                android:typeface="monospace"
+                android:textSize="11sp"
+                android:textColor="#334155"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+        </HorizontalScrollView>
+
+        <TextView
+            android:text="Tip: to reach a PC server use PC-IP,PORT (e.g. 192.168.1.10,1433). '.\SQLEXPRESS' means 'on this device' and only works on a PC."
+            android:textSize="11sp"
+            android:textColor="#94A3B8"
+            android:layout_marginTop="28dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+    </LinearLayout>
+</ScrollView>

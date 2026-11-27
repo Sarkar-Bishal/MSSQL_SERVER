@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>21</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MSSQL_Server</RootNamespace>
+    <ApplicationId>com.mssqlserver.app</ApplicationId>
+    <!-- Same application id as the old MSSQL_Server app: installing this APK upgrades it,
+         keeping existing databases, config.json and logs on the device. -->
+    <ApplicationVersion>9</ApplicationVersion>
+    <ApplicationDisplayVersion>1.4</ApplicationDisplayVersion>
+    <!--
+      "partial" is the .NET mobile default and is safe for third-party packages:
+      only trim-annotated assemblies (the framework) are trimmed. Full trimming of
+      System.Data.SqlClient (netstandard2.0, not trim-annotated) risks runtime
+      TypeInitializationException on device.
+    -->
+    <TrimMode>partial</TrimMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <!--
+      BOTH driver stacks are included, as requested. They ship the SAME namespace and
+      type names (System.Data.SqlClient.SqlConnection exists in BOTH assemblies), so a
+      direct compile-time reference to their types would need extern aliases, which fail
+      with CS0430 ("The extern alias 'sds' was not specified in a /reference option")
+      whenever a build does not apply the Aliases metadata, plus CS0234 afterwards, and
+      any direct use without aliases would raise CS0433 ambiguity errors.
+
+      This project therefore uses NO extern alias and NO Aliases metadata. The source
+      never names a SqlClient type at compile time:
+        Client/MicrosoftDataSqlClientAdapter.cs and
+        Client/SystemDataSqlClientAdapter.cs
+      load their assembly BY NAME at runtime (System.Reflection.Assembly.Load) and only
+      use System.Data.Common base classes, which both stacks implement. Nothing in the
+      csproj has to match the source for this to compile.
+
+      TrimmerRootAssembly keeps both packages inside Release builds: the IL linker sees
+      no static reference to them anymore (the adapters reach them via reflection only)
+      and would otherwise strip them from the APK.
+    -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.2" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
+    <TrimmerRootAssembly Include="Microsoft.Data.SqlClient" />
+    <TrimmerRootAssembly Include="System.Data.SqlClient" />
+  </ItemGroup>
+</Project>

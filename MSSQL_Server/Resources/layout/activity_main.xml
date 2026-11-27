@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:background="#F3F4F6"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <TextView
+        android:text="MSSQL SERVER"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="#172554"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="16dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+    <TextView
+        android:text="Unofficial SQL Server engine + SSMS-style client (not affiliated with Microsoft)"
+        android:textSize="12sp"
+        android:textColor="#64748B"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+    <RadioGroup
+        android:id="@+id/rgTabs"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:layout_marginTop="10dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <RadioButton
+            android:id="@+id/tabServer"
+            android:text="SERVER"
+            android:textStyle="bold"
+            android:textColor="#172554"
+            android:button="@null"
+            android:checked="true"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <RadioButton
+            android:id="@+id/tabClient"
+            android:text="CLIENT"
+            android:textStyle="bold"
+            android:textColor="#172554"
+            android:button="@null"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </RadioGroup>
+
+    <FrameLayout
+        android:id="@+id/panelContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+
+</LinearLayout>

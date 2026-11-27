@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:text="SERVER STATUS"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/txtStatus"
+            android:text="STOPPED"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#DC2626"
+            android:layout_marginTop="8dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/txtDeviceIp"
+            android:text="Device IP: (waiting for network)"
+            android:textSize="12sp"
+            android:textColor="#334155"
+            android:typeface="monospace"
+            android:layout_marginTop="6dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="NETWORK CONFIGURATION"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:layout_marginTop="28dp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="Host Address"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <EditText
+            android:id="@+id/txtHost"
+            android:text="0.0.0.0"
+            android:singleLine="true"
+            android:inputType="text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="TCP Port"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <EditText
+            android:id="@+id/txtPort"
+            android:text="1433"
+            android:singleLine="true"
+            android:inputType="number"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="'sa' password (min 8 characters, leave empty to keep current)"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <EditText
+            android:id="@+id/txtPassword"
+            android:singleLine="true"
+            android:inputType="textPassword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Button
+            android:id="@+id/btnApply"
+            android:text="Apply Configuration"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="DATABASE STORAGE"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:layout_marginTop="28dp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/txtDatabasePath"
+            android:text="Initializing..."
+            android:textSize="12sp"
+            android:textColor="#334155"
+            android:layout_marginTop="10dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="SERVER CONTROLS"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:layout_marginTop="28dp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Button
+            android:id="@+id/btnStart"
+            android:text="Start Server"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <Button
+            android:id="@+id/btnStop"
+            android:text="Stop Server"
+            android:enabled="false"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="SERVER LOG"
+            android:textStyle="bold"
+            android:textSize="12sp"
+            android:layout_marginTop="28dp"
+            android:textColor="#64748B"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:id="@+id/txtLog"
+            android:text=""
+            android:typeface="monospace"
+            android:textSize="10sp"
+            android:textColor="#334155"
+            android:layout_marginTop="8dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+        <TextView
+            android:text="MSSQL SERVER 1.0 - unofficial open source project (engine + client merged)"
+            android:textSize="11sp"
+            android:textColor="#94A3B8"
+            android:gravity="center"
+            android:layout_marginTop="32dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+
+    </LinearLayout>
+</ScrollView>
