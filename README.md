@@ -1,16 +1,16 @@
-# MSSQL SERVER for Android
+<h1 align="center">MSSQL SERVER for Android</h1>
 
 <p align="center">
-  **An independent SQL database server running directly on Android using C# and .NET.**
+  An independent SQL database server running directly on Android using C# and .NET.
 </p>
 
 <p align="center">
-  ![Platform](https://img.shields.io/badge/Platform-Android-green)
-  ![Language](https://img.shields.io/badge/Language-C%23-blue)
-  ![Framework](https://img.shields.io/badge/.NET-9.0-purple)
-  ![Protocol](https://img.shields.io/badge/Protocol-TDS-orange)
-  ![Database](https://img.shields.io/badge/Engine-Custom_Engine-blue)
-  ![License](https://img.shields.io/badge/License-TBD-lightgrey)
+  <img src="https://img.shields.io/badge/Platform-Android-green" alt="Platform">
+  <img src="https://img.shields.io/badge/Language-C%23-blue" alt="Language">
+  <img src="https://img.shields.io/badge/Framework-.NET%209.0-purple" alt="Framework">
+  <img src="https://img.shields.io/badge/Protocol-TDS-orange" alt="Protocol">
+  <img src="https://img.shields.io/badge/Engine-Custom%20Engine-blue" alt="Database">
+  <img src="https://img.shields.io/badge/License-TBD-lightgrey" alt="License">
 </p>
 
 ---
