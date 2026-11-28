@@ -1,164 +1,769 @@
-# MSSQL SERVER
+# MSSQL SERVER for Android
 
-Not affiliated with Microsoft. SQL Server, SSMS and SqlClient are Microsoft products; this project only speaks the same wire protocol and client APIs.
+<p align="center">
+  **An independent SQL database server running directly on Android using C# and .NET.**
+</p>
 
----
-
-## What is new in the app
-
-1. **One app, one Activity, two tabs.** The old `activity_main` server UI became `panel_server.xml`; the client UI is new (`panel_client.xml`).
-2. **Both driver stacks included and selectable per connection:**
-   - `Microsoft.Data.SqlClient` 7.1.2 (modern, recommended)
-   - `System.Data.SqlClient` 4.8.6 (classic stack)
-   - **Auto** mode: tries Microsoft.Data.SqlClient first, then falls back to System.Data.SqlClient.
-   - Both packages declare the *same* namespace and type names, so the source never references a SqlClient type at compile time: no `extern alias`, no csproj `Aliases`. The two adapter files load their assembly **by name at runtime** (`Assembly.Load`) and drive it through `System.Data.Common` (`DbConnection` / `DbCommand` / `DbDataReader`). `TrimmerRootAssembly` entries in the `.csproj` keep both packages inside Release builds.
-3. **Normal connection strings, exactly like on a PC.** The CLIENT tab parses and passes through:
-Data Source=.\SQLExpress;Initial Catalog=YourDB;Persist Security Info=True;User Id=sa;Password=yourpassword;
-   - `Data Source` accepts everything SqlClient accepts: `.\SQLEXPRESS`, `(local)`, `localhost`, `HOST\INSTANCE`, `192.168.1.10`, **`ip,port`** (e.g. `192.168.1.10,1433`), `HOST\INSTANCE,PORT`.
-   - Optional **Encrypt** selector (only appended when the string has no `Encrypt=` of its own).
-   - Optional **Trust server certificate** checkbox (appends `TrustServerCertificate=True` when missing). Default ON so typical PC servers with self-signed certificates work out of the box.
-   - Values already written by the user in the string always win; the app only adds missing keywords and tells you what it added.
-4. **SSMS-like query experience:** batches separated by lines containing only `GO`, multiple result sets rendered as aligned monospace text ("Results to Text" style), `(N row(s) affected)` messages, SSMS-style errors (`Msg 18456, Level 14, State 1: ...`), best-effort database list from `sys.databases` with one-tap `USE` switching, last connection string remembered (app-private storage).
-5. **SERVER tab addition:** shows the device's live Wi-Fi/Ethernet IPv4 addresses as ready-to-type endpoints (`192.168.1.23,1433`) for PC clients.
-6. Same `ApplicationId` (`com.mssqlserver.app`), versionCode 6 (v1.1): installing this APK **upgrades** the old MSSQL Server app and keeps its databases, `config.json` and logs.
+<p align="center">
+  ![Platform](https://img.shields.io/badge/Platform-Android-green)
+  ![Language](https://img.shields.io/badge/Language-C%23-blue)
+  ![Framework](https://img.shields.io/badge/.NET-9.0-purple)
+  ![Protocol](https://img.shields.io/badge/Protocol-TDS-orange)
+  ![Database](https://img.shields.io/badge/Engine-Custom_Engine-blue)
+  ![License](https://img.shields.io/badge/License-TBD-lightgrey)
+</p>
 
 ---
 
-## Project layout
+## 1. Project Overview
+
+**MSSQL SERVER** is an open-source project focused on developing an independent SQL database server that runs directly on Android devices.
+
+The project is developed using **C# and .NET**, with a custom database engine and Microsoft TDS (Tabular Data Stream) protocol compatibility.
+
+The primary objective is to allow Android devices to host a database server that can be accessed remotely from computers and other applications using familiar SQL Server client technologies.
+
+The project is not based on installing or running Microsoft's SQL Server database engine on Android. Instead, it implements its own database engine and communication layer.
+
+### Project Vision
+
+Build a lightweight, independent SQL database server that provides:
+
+- Custom database storage engine.
+- SQL query execution.
+- Microsoft TDS protocol compatibility.
+- TCP-based remote database connectivity.
+- Android internal database storage.
+- Multiple client connections.
+- Database authentication and security.
+- Background server operation.
+- Android database management interface.
+- Compatibility with SQL Server client applications.
+
+**Important:** This project is independent software. It is not developed, maintained, endorsed, or officially supported by Microsoft.
+
+---
+
+## 2. Project Information
+
+| Property | Details |
+|---|---|
+| Project Name | MSSQL SERVER |
+| Project Type | Independent SQL Database Server |
+| Target Platform | Android |
+| Programming Language | C# |
+| Framework | .NET for Android |
+| Database Engine | Custom Engine |
+| Client Protocol | Microsoft TDS |
+| Network Communication | TCP/IP |
+| Storage | Android Internal Storage |
+| SQL Language | T-SQL-compatible subset |
+| Development Environment | Visual Studio / .NET CLI |
+| Repository | GitHub |
+| License | To be decided |
+
+### Technology Stack
+
+| Technology | Purpose |
+|---|---|
+| C# | Core application and database engine |
+| .NET | Application framework |
+| Android XML | User interface |
+| TCP/IP | Network communication |
+| TDS | Database client communication |
+| Custom Storage Engine | Database persistence |
+| SQL Parser | SQL statement processing |
+| JSON | Server configuration |
+| PBKDF2-SHA256 | Password hashing |
+
+---
+
+## 3. Current Application Features
+
+The current application contains two main sections.
+
+### SERVER
+
+The SERVER section manages the database server running on the Android device.
+
+Features include:
+
+- Server configuration.
+- Server start and stop controls.
+- Server authentication configuration.
+- TCP listener.
+- Configurable server port.
+- Device IPv4 address detection.
+- Database server connection endpoint.
+- Application logging.
+- Local database access.
+
+### CLIENT
+
+The CLIENT section allows the Android application to connect to SQL database servers.
+
+Features include:
+
+- SQL Server connection strings.
+- Microsoft.Data.SqlClient integration.
+- System.Data.SqlClient integration.
+- Automatic driver selection.
+- Manual driver selection.
+- Database selection.
+- SQL query execution.
+- Multiple result sets.
+- Query result formatting.
+- SQL error reporting.
+- GO batch processing.
+
+The CLIENT section can connect to external SQL Server installations as well as the application's local database server.
+
+---
+
+## 4. Database Engine
+
+The project uses an independent custom database engine.
+
+It does not use SQLite as its underlying database engine.
+
+### Implemented SQL Features
+
+The current SQL implementation includes:
+
+| Category | Supported Features |
+|---|---|
+| Database | CREATE DATABASE, DROP DATABASE |
+| Tables | CREATE TABLE, DROP TABLE |
+| Data | SELECT, INSERT, UPDATE, DELETE |
+| Filtering | WHERE |
+| Sorting | ORDER BY |
+| Grouping | GROUP BY, HAVING |
+| Joins | JOIN |
+| Query Options | TOP, DISTINCT |
+| Transactions | BEGIN TRAN, COMMIT, ROLLBACK |
+| Database Selection | USE |
+| System Information | @@VERSION, @@SERVERNAME, @@SPID |
+| System Catalogs | sys.databases, sys.tables |
+
+The SQL implementation represents a practical subset of T-SQL, not complete Microsoft SQL Server compatibility.
+
+### Planned Database Engine Improvements
+
+- Database file format specification.
+- Database headers and metadata.
+- Page-based storage management.
+- Page allocation.
+- Buffer pool.
+- Advanced data types.
+- B-Tree indexing.
+- Write-Ahead Logging (WAL).
+- Transaction isolation.
+- Lock management.
+- Crash recovery.
+- Storage integrity validation.
+
+---
+
+## 5. Microsoft TDS Protocol Compatibility
+
+The server implements a TDS-based communication layer to allow external SQL Server client applications to communicate with the Android-hosted database engine.
+
+### Current Protocol Capabilities
+
+- TDS packet communication.
+- PRELOGIN negotiation.
+- LOGIN7 authentication.
+- SQL Batch processing.
+- RPC request processing.
+- SQL response tokens.
+- Result-set serialization.
+- Column metadata.
+- Row data transmission.
+- SQL error responses.
+
+### Client Compatibility
+
+The project targets compatibility with:
+
+| Client | Status |
+|---|---|
+| Microsoft.Data.SqlClient | Supported integration |
+| System.Data.SqlClient | Supported integration |
+| SQL Server Management Studio (SSMS) | Basic connectivity demonstrated |
+| ADO.NET applications | Basic connectivity demonstrated |
+| sqlcmd | Target compatibility |
+
+Compatibility is limited to the protocol features and SQL functionality implemented by the project.
+
+### Important Protocol Limitation
+
+The current server does not support TLS encryption.
+
+For connections to the Android server, encryption must be disabled or configured as optional in the client.
+
+Do not expose the current server to untrusted networks.
+
+---
+
+## 6. Project Architecture
+
+### Current Repository Structure
+
+```text
 MSSQL_SERVER/
+│
 ├── MSSQL_SERVER.sln
+│
 └── MSSQL_Server/
-├── MSSQL_Server.csproj (both SqlClient packages + TrimmerRootAssembly linker roots)
-├── AndroidManifest.xml (INTERNET, ACCESS_NETWORK_STATE)
-├── MainActivity.cs (tab host: SERVER / CLIENT)
-├── MainActivity.ServerPanel.cs (server UI logic - port of the original app)
-├── MainActivity.ClientPanel.cs (client UI logic - new)
-├── Client/
-│ ├── SqlClientAdapter.cs (driver abstraction + Auto ordering + runtime loading helpers)
-│ ├── MicrosoftDataSqlClientAdapter.cs (loads Microsoft.Data.SqlClient by name at runtime)
-│ ├── SystemDataSqlClientAdapter.cs (loads System.Data.SqlClient by name at runtime)
-│ ├── ConnectionStringInfo.cs (parse/validate/normalize connection strings)
-│ ├── QueryRunner.cs (GO batches, result sets, rows affected)
-│ └── QueryResultFormatter.cs (SSMS "Results to Text" rendering)
-├── Core/ (ServerManager, ServerState, NetworkInfo)
-├── Configuration/ Database/ Engine/ Logging/ Security/ Sql/ Tds/ (engine, unchanged)
-└── Resources/
-├── layout/activity_main.xml (tab host)
-├── layout/panel_server.xml (old server UI + device-IP line)
-├── layout/panel_client.xml (new client UI)
-└── values/ mipmap-*/ (icons, app name "MSSQL SERVER")
+    │
+    ├── MainActivity.cs
+    ├── MainActivity.ServerPanel.cs
+    ├── MainActivity.ClientPanel.cs
+    ├── MSSQL_Server.csproj
+    ├── AndroidManifest.xml
+    │
+    ├── Client/
+    │   ├── SqlClientAdapter.cs
+    │   ├── MicrosoftDataSqlClientAdapter.cs
+    │   ├── SystemDataSqlClientAdapter.cs
+    │   ├── ConnectionStringInfo.cs
+    │   ├── QueryRunner.cs
+    │   └── QueryResultFormatter.cs
+    │
+    ├── Core/
+    │
+    ├── Configuration/
+    │
+    ├── Database/
+    │
+    ├── Engine/
+    │
+    ├── Logging/
+    │
+    ├── Security/
+    │
+    ├── Sql/
+    │
+    ├── Tds/
+    │
+    └── Resources/
+        ├── layout/
+        │   ├── activity_main.xml
+        │   ├── panel_server.xml
+        │   └── panel_client.xml
+        │
+        ├── values/
+        │
+        └── mipmap-*/
+```
+
+### Proposed Future Modular Architecture
+
+As development progresses, the project is intended to evolve into a modular architecture.
+
+```text
+DroidSQL/
+│
+├── DroidSQL.sln
+│
+├── src/
+│   ├── DroidSQL.Android/
+│   ├── DroidSQL.Core/
+│   ├── DroidSQL.Storage/
+│   ├── DroidSQL.Sql/
+│   └── DroidSQL.Tds/
+│
+├── tests/
+│   ├── DroidSQL.Core.Tests/
+│   ├── DroidSQL.Storage.Tests/
+│   ├── DroidSQL.Sql.Tests/
+│   └── DroidSQL.Tds.Tests/
+│
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── DATABASE-FORMAT.md
+│   ├── SQL-SPECIFICATION.md
+│   ├── TDS-COMPATIBILITY.md
+│   └── SECURITY.md
+│
+├── samples/
+│
+├── LICENSE
+├── README.md
+└── CONTRIBUTING.md
+```
+
+The Android application must remain independent of the database engine, SQL execution engine, and TDS implementation.
 
 ---
 
-## Build
+## 7. Development Roadmap
 
-Requirements: Visual Studio 2022 17.12+ with the ".NET desktop + Android" workloads, or the CLI:
+The project is divided into ten major development phases.
+
+### Phase 1 — Android Application Foundation
+
+**Objective:** Establish the Android application and server management foundation.
+
+Tasks:
+
+- [x] Android project creation.
+- [x] MainActivity implementation.
+- [x] Android XML user interface.
+- [x] Server management interface.
+- [x] Client management interface.
+- [x] Basic server configuration.
+- [x] Server state management.
+- [x] Application logging.
+- [ ] Complete configuration persistence and validation.
+- [ ] Foundation testing.
+
+**Deliverable:** Android server management application.
+
+### Phase 2 — Custom Database Storage Engine
+
+**Objective:** Develop a persistent, independent database storage engine.
+
+Tasks:
+
+- [x] Initial custom database engine.
+- [x] Basic database creation and management.
+- [x] Basic table management.
+- [x] Data insertion and retrieval.
+- [x] Data updating and deletion.
+- [ ] Formal database file format.
+- [ ] Database header and metadata.
+- [ ] Page management.
+- [ ] Page allocation.
+- [ ] Buffer pool.
+- [ ] B-Tree indexing.
+- [ ] Write-Ahead Logging (WAL).
+- [ ] Crash recovery.
+- [ ] Storage integrity testing.
+
+**Deliverable:** Reliable persistent custom database engine.
+
+### Phase 3 — SQL Language Engine
+
+**Objective:** Develop the SQL processing and execution system.
+
+Tasks:
+
+- [x] Basic SQL statement execution.
+- [x] SELECT statements.
+- [x] INSERT statements.
+- [x] UPDATE statements.
+- [x] DELETE statements.
+- [x] CREATE DATABASE.
+- [x] CREATE TABLE.
+- [x] DROP DATABASE.
+- [x] DROP TABLE.
+- [x] WHERE conditions.
+- [x] ORDER BY.
+- [x] GROUP BY and HAVING.
+- [x] JOIN operations.
+- [ ] Dedicated SQL Lexer.
+- [ ] Dedicated SQL Parser.
+- [ ] Abstract Syntax Tree (AST).
+- [ ] Query planner.
+- [ ] Query optimizer.
+- [ ] Expanded SQL functions and expressions.
+
+**Deliverable:** Extensible SQL execution engine.
+
+### Phase 4 — TCP Network Server
+
+**Objective:** Enable remote database connections.
+
+Tasks:
+
+- [x] TCP listener.
+- [x] Configurable server port.
+- [x] Remote connection support.
+- [x] Client connection handling.
+- [x] Request processing.
+- [x] Response handling.
+- [x] Device IP detection.
+- [ ] Advanced session management.
+- [ ] Connection timeout management.
+- [ ] Graceful shutdown.
+- [ ] Advanced network error handling.
+- [ ] Connection stress testing.
+
+**Deliverable:** Network-accessible Android database server.
+
+### Phase 5 — Microsoft TDS Protocol
+
+**Objective:** Implement TDS compatibility for SQL Server client applications.
+
+Tasks:
+
+- [x] TDS packet communication.
+- [x] PRELOGIN negotiation.
+- [x] LOGIN7 authentication.
+- [x] SQL Batch processing.
+- [x] RPC processing.
+- [x] SQL response serialization.
+- [x] Column metadata.
+- [x] Row data serialization.
+- [ ] Expanded TDS version compatibility.
+- [ ] Complete error and informational token handling.
+- [ ] Advanced transaction protocol support.
+- [ ] TLS encryption.
+- [ ] Expanded SSMS compatibility testing.
+
+**Deliverable:** Expanded TDS-compatible database server.
+
+### Phase 6 — Authentication and Security
+
+**Objective:** Protect database access and user information.
+
+Tasks:
+
+- [x] Server password authentication.
+- [x] PBKDF2-SHA256 password hashing.
+- [x] Basic failed-login rate limiting.
+- [ ] Multiple database users.
+- [ ] Database permissions.
+- [ ] Role management.
+- [ ] TLS certificate management.
+- [ ] Session security improvements.
+- [ ] Security auditing.
+- [ ] Comprehensive security testing.
+
+**Deliverable:** Secure database access system.
+
+### Phase 7 — Android Background Server
+
+**Objective:** Allow the database server to operate independently of the management interface.
+
+Tasks:
+
+- [ ] Android Foreground Service.
+- [ ] Persistent server notification.
+- [ ] Start server from background service.
+- [ ] Stop server.
+- [ ] Restart server.
+- [ ] Server lifecycle management.
+- [ ] Battery and resource monitoring.
+- [ ] Network disconnection handling.
+- [ ] Crash recovery.
+- [ ] Background execution testing.
+
+**Deliverable:** Android-hosted database server operating through a foreground service.
+
+### Phase 8 — Database Management Dashboard
+
+**Objective:** Build a complete database administration interface.
+
+Tasks:
+
+- [x] Server management interface.
+- [x] Client connection interface.
+- [x] SQL query editor.
+- [x] Query execution results.
+- [x] Basic server information.
+- [ ] Live connection monitoring.
+- [ ] Database explorer.
+- [ ] Table explorer.
+- [ ] Advanced server monitoring.
+- [ ] Configuration management.
+- [ ] Backup and restore.
+- [ ] Storage monitoring.
+- [ ] Improved log viewer.
+
+**Deliverable:** Complete Android database management dashboard.
+
+### Phase 9 — Testing and Compatibility
+
+**Objective:** Validate reliability, performance, and client compatibility.
+
+Tasks:
+
+- [ ] Unit testing.
+- [ ] Storage engine testing.
+- [ ] SQL execution testing.
+- [ ] TDS protocol testing.
+- [ ] Multiple client testing.
+- [ ] SSMS compatibility testing.
+- [ ] Microsoft.Data.SqlClient testing.
+- [ ] System.Data.SqlClient testing.
+- [ ] Stress testing.
+- [ ] Crash recovery testing.
+- [ ] Android device compatibility testing.
+- [ ] Performance benchmarking.
+
+**Deliverable:** Tested and documented database server.
+
+### Phase 10 — Open-Source Release
+
+**Objective:** Prepare the project for public development and community contributions.
+
+Tasks:
+
+- [x] Public GitHub repository.
+- [ ] Final project license.
+- [ ] Complete README documentation.
+- [ ] Installation guide.
+- [ ] Developer documentation.
+- [ ] Architecture documentation.
+- [ ] TDS compatibility matrix.
+- [ ] Database format documentation.
+- [ ] Release APK.
+- [ ] Versioning strategy.
+- [ ] Community contribution guidelines.
+- [ ] First stable release.
+
+**Deliverable:** Public open-source project.
+
+---
+
+## 8. Development Progress
+
+<details>
+<summary><strong>Current development status</strong></summary>
+
+| Phase | Development Area | Status |
+|---|---|---|
+| 1 | Android Application Foundation | In Progress |
+| 2 | Custom Database Storage Engine | In Progress |
+| 3 | SQL Language Engine | In Progress |
+| 4 | TCP Network Server | In Progress |
+| 5 | Microsoft TDS Protocol | In Progress |
+| 6 | Authentication and Security | In Progress |
+| 7 | Android Background Server | Planned |
+| 8 | Database Management Dashboard | In Progress |
+| 9 | Testing and Compatibility | Planned |
+| 10 | Open-source Release | In Progress |
+
+**Progress measurement:** The table describes implementation maturity, not verified completion of every task. Individual checkboxes must be updated as features are implemented and tested.
+
+</details>
+
+### Project Milestones
+
+| Milestone | Expected Result |
+|---|---|
+| M1 | Android application foundation |
+| M2 | Persistent database files |
+| M3 | SQL query execution |
+| M4 | Network-accessible database |
+| M5 | Initial TDS client connectivity |
+| M6 | Authentication and security |
+| M7 | Background server operation |
+| M8 | Complete management dashboard |
+| M9 | Compatibility and performance testing |
+| M10 | Public release |
+
+---
+
+## 9. Development Principles
+
+The following principles guide the project.
+
+**1. Independent Database Engine**
+
+The project must implement its own database storage and execution engine. SQLite must not be used as the underlying database engine.
+
+**2. Architecture Independence**
+
+The database engine, SQL engine, core components, and TDS implementation must not depend on Android user interface APIs.
+
+**3. Data Integrity**
+
+Database persistence, transactions, locking, WAL, and recovery must be designed and tested before production-readiness claims.
+
+**4. Protocol Compatibility**
+
+TDS compatibility must be demonstrated through actual connections using SQL Server client applications.
+
+**5. Modular Development**
+
+Each major component should be independently testable and maintainable.
+
+**6. Security First**
+
+Authentication, password protection, encryption, session management, and database permissions must be treated as essential components.
+
+**7. Open-Source Development**
+
+The project should encourage developers to contribute improvements, report issues, and extend functionality.
+
+---
+
+## 10. Build and Development Setup
+
+### Requirements
+
+- Windows 10/11 or another supported .NET development environment.
+- Visual Studio 2022 version 17.12 or later.
+- .NET for Android workload.
+- Android SDK.
+- C# development experience.
+
+### Install Android Workload
+
+```bash
 dotnet workload install android
+```
+
+### Clone Repository
+
+```bash
+git clone https://github.com/Sarkar-Bishal/MSSQL_SERVER.git
+```
+
+### Navigate to Project
+
+```bash
+cd MSSQL_SERVER
+```
+
+### Build Solution
+
+```bash
 dotnet build MSSQL_SERVER.sln -f net9.0-android
+```
 
-`Microsoft.Data.SqlClient` 7.1.2 and `System.Data.SqlClient` 4.8.6 are restored from nuget.org. Deploy like any .NET Android app (Run in VS, or `dotnet publish -f net9.0-android` for an APK).
+### Publish Android Application
 
-> Notes:
-> - `TrimMode` is `partial` (the .NET mobile default). Full trimming of `System.Data.SqlClient` (netstandard2.0, not trim-annotated) can break it at runtime on device, so the merged project keeps it safe; Microsoft.Data.SqlClient remains fully functional under this mode as well.
-> - The adapters reach both driver assemblies only via reflection, so the csproj registers them as `TrimmerRootAssembly`; the IL linker then keeps both packages inside Release builds, and the **Auto** driver mode still falls back to the other stack if one of them ever fails to load.
+```bash
+dotnet publish MSSQL_SERVER.sln -f net9.0-android
+```
 
----
-
-## Using the CLIENT tab
-
-### 1. Connect to a PC SQL Server / SQL Express (from the phone, same Wi-Fi)
-
-1. On the PC: enable TCP/IP in SQL Server Configuration Manager, enable Mixed Mode auth, make sure the firewall allows the port, note the PC's IP.
-2. In the app, set the connection string, for example:
-Data Source=192.168.1.10,1433;Initial Catalog=YourDB;Persist Security Info=True;User Id=sa;Password=yourpassword;
-   (or `Data Source=PCNAME\SQLEXPRESS;...` — instance names use SQL Browser, UDP 1434)
-3. Driver: `Auto` (or a specific stack), then **Connect**. Server version and the database list appear; pick a database to switch; type queries and **Run**.
-
-### 2. Connect to the app's own local engine
-
-1. SERVER tab: set an `sa` password, **Apply**, **Start Server**.
-2. CLIENT tab: tap **Fill: local engine (this device)** — it fills `Data Source=127.0.0.1,1433;...;Encrypt=False;` — add `;Password=YOUR-SERVER-PASSWORD;` before `User Id` or edit as you like, then **Connect**.
-
-About `.\SQLExpress` and `(local)`: these mean "on **this** device". On a PC they point at that PC's SQL Express; on the phone there is no SQL Express instance, so from the phone use the PC's `ip,port` instead. The parser accepts the strings unchanged either way.
-
-### 3. Connect from PC SSMS to this app's server
-
-1. Phone and PC on the same network; SERVER tab shows `Use in PC SSMS: 192.168.1.23,1433`.
-2. SSMS: Server name `192.168.1.23,1433`, Authentication = SQL Server, login `sa` + your password.
-3. Encryption: the local engine does not support TLS yet (PRELOGIN answers ENCRYPT_NOT_SUP):
-   - SSMS 19: set **Encrypt connection: False** in the connection dialog.
-   - SSMS 20/21: set **Encryption: Optional** in the connection dialog.
-   - Any PC app using `SqlClient`: add `Encrypt=False;` (or `TrustServerCertificate=True` for the classic stack) to the connection string.
-
-The engine speaks TDS 7.x (PRELOGIN -> LOGIN7 -> SQL batches / `sp_executesql` RPCs), so SSMS, Visual Studio's SQL Server Object Explorer, ADO.NET apps, `sqlcmd` and the in-app CLIENT all work against it. Supported SQL surface (same as the original project, plus the SSMS scripting additions listed below): `SELECT` (WHERE/GROUP BY/HAVING/ORDER BY/JOIN/TOP/DISTINCT, functions incl. `@@VERSION`, `@@SERVERNAME`, `@@SPID`), `INSERT`, `UPDATE`, `DELETE`, `CREATE/DROP TABLE`, `CREATE/DROP DATABASE`, `USE`, `BEGIN/COMMIT/ROLLBACK TRAN`, plus virtual catalogs `sys.databases` / `sys.tables`.
+For a release APK, configure the appropriate Android release signing and publishing settings.
 
 ---
 
-## Troubleshooting (SSMS against the SERVER tab)
+## 11. Connecting from SQL Server Management Studio
 
-These are the three errors that appear when PC SSMS drives the on-device engine. They are **protocol/feature gaps, not network failures** — confirm reachability first with `Test-NetConnection <phone-ip> -Port 1433` (`TcpTestSucceeded : True` means the engine is listening and the path is fine).
+The Android server can be accessed from a computer connected to the same network.
 
-| Symptom | Root cause | Fix |
-| --- | --- | --- |
-| `Cannot show requested dialog` + `provider: TCP Provider, error: 0 - The wait operation timed out` (Error **258**) | SSMS opened a dialog (Properties / Dashboard / Object Explorer Details) that needs a **fresh** connection and the engine dropped it mid-script. | Use **New Query** windows for work. Avoid right-click → Properties / Dashboard against the phone server (see the patch below to make Properties open anyway). |
-| `Msg 208 ... Invalid object name 'Employees'` | Table not present in the **current** database. | Run `SELECT DB_NAME();` to see context, then `USE <db>;` and `CREATE TABLE` / `INSERT` as needed. |
-| `Msg 2812 ... Could not find stored procedure 'master.dbo.xp_instance_regread'` | SSMS's server-configuration scripts call `xp_instance_regread`, which the mini engine does not implement. | Apply the **SSMS Properties patch** below. |
+### Connection Instructions
 
-### SSMS Properties patch (optional)
+1. Start the database server on the Android device.
+2. Identify the Android device's IPv4 address.
+3. Open SQL Server Management Studio on the computer.
+4. Select SQL Server Authentication.
+5. Enter the Android device IP address and port.
+6. Enter the configured server username and password.
+7. Configure encryption as Optional or disabled, as appropriate for the current server implementation.
+8. Connect.
 
-Android has no Windows registry, so `xp_instance_regread` is faked by rewriting SSMS's script into plain `SET @var = ...` statements before parsing. Add `using System.Text.RegularExpressions;` to the top of `MSSQL_Server/Engine/SqlEngine.cs`, then wrap the start of `ExecuteBatch(string sql, SqlSession session)` with:
+Example server address:
 
-```csharp
-// --- SSMS Properties patch: fake xp_instance_regread ---
-if (sql.Contains("xp_instance_regread", StringComparison.OrdinalIgnoreCase))
-{
-    var pattern = @"exec\s+master\.dbo\.xp_instance_regread\s+[^,]+,\s*[^,]+,\s*[^,]+,\s*(@\w+)\s+OUTPUT";
-    var dummy = new Dictionary<string, string>
-    {
-        { "@SmoAuditLevel", "0" }, { "@NumErrorLogs", "0" }, { "@SmoLoginMode", "1" },
-        { "@SmoMailProfile", "''" }, { "@BackupDirectory", "'C:\\fake\\backup'" },
-        { "@SmoPerfMonMode", "0" }, { "@InstallSqlDataDir", "'C:\\fake\\data'" },
-        { "@ServiceStartMode", "2" }, { "@ServiceAccount", "'NT Service\\MSSQLSERVER'" },
-        { "@NamedPipesEnabled", "0" }, { "@TcpEnabled", "1" },
-        { "@InstallSharedDirectory", "'C:\\fake\\shared'" }, { "@SqlGroup", "''" },
-        { "@FilestreamLevel", "0" }, { "@FilestreamShareName", "''" }
-    };
-    sql = Regex.Replace(sql, pattern, m =>
-        dummy.TryGetValue(m.Groups[1].Value, out var v) ? $"SET {m.Groups[1].Value} = {v}" : $"SET {m.Groups[1].Value} = 0",
-        RegexOptions.IgnoreCase);
-}
-// --- end patch ---
-After rebuilding, SSMS Server Properties will open against the phone (fields show the dummy values). If it still errors, check the app log for the next Invalid object name / 2812 and add that catalog view or function to the engine's sys surface.
-Data persistence (IMPORTANT: databases are deleted on uninstall)
-By default the engine writes its database files into the app's private sandbox (/data/data/com.mssqlserver.app/). Android wipes that folder on uninstall, so your created databases disappear with the app.
-Do not uninstall the app unless you have backed up. To free memory without losing data use Settings → Apps → MSSQL SERVER → Storage → Clear Cache (never "Clear Data").
-To keep databases across uninstall/reinstall, point the engine at external storage instead of the private folder. In MainActivity.cs (where SqlEngine is constructed):
-csharp
-// Private (default, wiped on uninstall):
-// string dbPath = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Personal);
+```text
+192.168.1.23,1433
+```
 
-// External (survives uninstall):
-string dbPath = Path.Combine(Android.OS.Environment.ExternalStorageDirectory.AbsolutePath, "MSSQL_Server_Data");
-Directory.CreateDirectory(dbPath);
-var engine = new SqlEngine(dbPath, "MSSQLServer");
-Then in AndroidManifest.xml add, before <application>:
-xml
-  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-  <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-and request WRITE_EXTERNAL_STORAGE at runtime in MainActivity.OnCreate(). (On Android 11+ you may need the "All files access" toggle.) A "Downloads" variant:
-csharp
-  string dbPath = Path.Combine(
-      Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads).AbsolutePath,
-      "MSSQL_Server_Data");
-Alternatively add a Backup button that copies the private root directory to Download/MSSQL_Backup before you uninstall.
-Driver notes
-Microsoft.Data.SqlClient (default/Auto): modern TDS, Encrypt defaults to Mandatory; against a PC server with a self-signed certificate keep the Trust server certificate box checked, or add Encrypt=False;.
-System.Data.SqlClient: classic stack (keyword defaults unchanged, Encrypt off by default). Chosen per connection from the Driver spinner; useful when a legacy server or legacy behaviour is expected. It ships as netstandard2.0 and runs through the managed SNI implementation on Android.
-Auto: tries Microsoft.Data.SqlClient, and on any failure retries the same connection with System.Data.SqlClient, reporting which one actually connected.
-Security notes (unchanged from the original projects)
-The embedded server stores only a PBKDF2-SHA256 (210k iterations) salt+hash of sa; 5 failed logins per IP lock out for 1 minute; config is saved atomically.
-The local TDS listener has no TLS — use it on trusted networks only.
-The CLIENT tab stores the last connection string (including any password inside it) in Android app-private preferences, like SSMS's "remember password". Nothing is written outside the app sandbox.
-Disclaimer
-Not affiliated with Microsoft. This project only speaks the same wire protocol and client APIs as SQL Server / SSMS / SqlClient, which are Microsoft products. The on-device engine implements a practical subset of T-SQL and the sys catalog; it is intended for learning, testing and light workloads, not as a production database server.
+Example connection string:
+
+```text
+Data Source=192.168.1.23,1433;
+Initial Catalog=master;
+User Id=sa;
+Password=YOUR_PASSWORD;
+Encrypt=False;
+```
+
+**Security warning:** The current server does not support TLS. Use only trusted networks and do not expose the listener directly to the public internet.
+
+---
+
+## 12. Data Storage and Backup
+
+The database engine currently uses Android application-private storage.
+
+Important considerations:
+
+- Application-private files are protected by Android's application sandbox.
+- Uninstalling the application deletes its private database files.
+- Clearing application data also deletes the database files.
+- Database backups should be created before uninstalling or resetting the application.
+
+Database backup and restore functionality is part of the development roadmap.
+
+---
+
+## 13. Known Limitations
+
+The project is under active development and is not a replacement for production Microsoft SQL Server.
+
+Current limitations include:
+
+- Incomplete T-SQL compatibility.
+- Incomplete SQL Server system catalog compatibility.
+- No TLS encryption in the current server.
+- Limited SSMS administrative functionality.
+- Incomplete storage engine architecture.
+- Advanced indexing and transaction features remain under development.
+- Android background service support remains planned.
+- Comprehensive automated testing is pending.
+
+---
+
+## 14. Open-Source Contribution
+
+Contributions from developers are welcome.
+
+Potential contribution areas:
+
+- C# and .NET development.
+- Database storage engine.
+- SQL parsing and execution.
+- TDS protocol implementation.
+- Android development.
+- Network programming.
+- Security.
+- Performance optimization.
+- Testing and documentation.
+
+### Contribution Process
+
+1. Fork the repository.
+2. Create a feature branch.
+3. Implement your changes.
+4. Test your implementation.
+5. Submit a pull request.
+6. Provide a clear description of the changes.
+
+---
+
+## 15. Repository
+
+**GitHub:**  
+https://github.com/Sarkar-Bishal/MSSQL_SERVER
+
+Issues, feature requests, bug reports, and contributions should be submitted through the GitHub repository.
+
+---
+
+## 16. License
+
+The final open-source license has not yet been selected.
+
+MIT or Apache License 2.0 are being considered.
+
+Until a license is added to the repository, users should not assume that the project is available under either license.
+
+---
+
+## 17. Disclaimer
+
+This is an independent software development project.
+
+Microsoft, SQL Server, SQL Server Management Studio (SSMS), Microsoft.Data.SqlClient, and System.Data.SqlClient are Microsoft products or trademarks.
+
+This project is not affiliated with, endorsed by, or officially supported by Microsoft.
+
+The project implements its own database engine and aims to support compatible client communication through the TDS protocol.
+
+---
+
+<p align="center">
+
+**Built with C# and .NET**
+
+**An independent SQL database server for Android.**
+
+</p>
