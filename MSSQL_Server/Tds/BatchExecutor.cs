@@ -1,15 +1,23 @@
+using Android.Util;
 using MSSQL_Server.Configuration;
 using MSSQL_Server.Engine;
+using MSSQL_Server.Logging;
 
 namespace MSSQL_Server.Tds
 {
     /// <summary>Runs a SQL batch on the engine and encodes the outcome as a TDS token stream.</summary>
     internal static class BatchExecutor
     {
-        public static byte[] Execute(string sql, SqlEngine engine, SqlSession session, ServerConfiguration cfg, bool rpc = false)
+        public static byte[] Execute(string sql, SqlEngine engine, SqlSession session, ServerConfiguration cfg, bool rpc = false, ServerLogger? log = null)
         {
             byte doneTok = rpc ? TdsTokens.DoneInProc : TdsTokens.Done;
             var result = engine.ExecuteBatch(sql, session);
+            if (result.Error != null)
+            {
+                log?.Warn($"SQL error {result.Error.Number}: {result.Error.Message} | batch: " +
+                          (sql.Length > 50000 ? sql[..50000] + "..." : sql));
+                FailedBatchBuffer.Add(result.Error.Number, result.Error.Message, sql);   // <- new
+            }
             var tb = new TokenBuilder();
             int n = result.Statements.Count;
 

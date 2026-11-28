@@ -159,6 +159,8 @@ namespace MSSQL_Server.Tds
 
             await Send(TdsTokens.Concat(
                 TdsTokens.EnvChangeToken(1, "master", string.Empty),
+                TdsTokens.EnvChangeToken(2, "us_english", string.Empty),   // language
+                TdsTokens.EnvChangeCollationToken(),                        // SQL collation (type 7)
                 TdsTokens.EnvChangeToken(4, TdsTransport.ServerPacketSize.ToString(), "4096"),
                 TdsTokens.LoginAckToken(ack, "MSSQL Server (unofficial)"),
                 TdsTokens.DoneToken(TdsTokens.DoneFinal, 0, 0)), ct);
@@ -265,7 +267,10 @@ namespace MSSQL_Server.Tds
             bool isExecuteSql = rpc.ProcId == RpcParser.SpExecuteSql ||
                 string.Equals(rpc.ProcName, "sp_executesql", StringComparison.OrdinalIgnoreCase);
             if (!isExecuteSql)
+            {
+                log.Warn($"{remote}: RPC to unsupported procedure '{rpc.ProcName ?? "#" + rpc.ProcId}'.");
                 return ErrorReply(2812, 16, $"Could not find stored procedure '{rpc.ProcName ?? "#" + rpc.ProcId}'.", rpc: true);
+            }
 
             if (rpc.Params.Count == 0 || rpc.Params[0].Value is not string sql)
                 return ErrorReply(201, 16, "Procedure or function 'sp_executesql' expects parameter '@stmt', which was not supplied.", rpc: true);
@@ -277,7 +282,7 @@ namespace MSSQL_Server.Tds
                 if (name.Length > 0 && name[0] != '@') name = "@" + name;
                 if (name.Length > 1) sqlSession.Parameters[name] = rpc.Params[i].Value;
             }
-            try { return BatchExecutor.Execute(sql, engine, sqlSession, config, rpc: true); }
+            try { return BatchExecutor.Execute(sql, engine, sqlSession, config, rpc: true, log: log); }
             finally { sqlSession.Parameters.Clear(); }
         }
 
@@ -294,7 +299,7 @@ namespace MSSQL_Server.Tds
                     TdsTokens.DoneToken(TdsTokens.DoneError, 0, 0));
 
             string sql = Encoding.Unicode.GetString(payload, headers, (payload.Length - headers) & ~1);
-            return BatchExecutor.Execute(sql, engine, sqlSession, config);
+            return BatchExecutor.Execute(sql, engine, sqlSession, config, log: log);
         }
     }
 }

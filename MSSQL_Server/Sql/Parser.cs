@@ -6,14 +6,13 @@ namespace MSSQL_Server.Sql
     {
         private static readonly HashSet<string> StatementStarts = new(StringComparer.OrdinalIgnoreCase)
             { "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "USE", "SET", "GO", "BEGIN", "COMMIT", "ROLLBACK",
-              "DECLARE", "IF", "ELSE", "EXEC", "EXECUTE", "PRINT", "RETURN", "WHILE" };
+              "DECLARE", "IF", "ELSE", "EXEC", "EXECUTE", "PRINT", "RETURN", "WHILE", "UNION" };
 
         private static readonly HashSet<string> Reserved = new(StringComparer.OrdinalIgnoreCase)
             { "FROM", "WHERE", "GROUP", "ORDER", "HAVING", "JOIN", "INNER", "LEFT", "ON", "AS",
               "UNION", "SET", "VALUES", "AND", "OR", "NOT", "BY", "OUTER",
-              // control-flow / scripting keywords - must never be mistaken for column refs or aliases
               "WHEN", "THEN", "ELSE", "END", "IF", "DECLARE", "EXEC", "EXECUTE", "PRINT", "RETURN",
-              "WHILE", "OUTPUT", "CASE", "CAST", "CONVERT", "EXISTS" };
+              "WHILE", "OUTPUT", "CASE", "CAST", "CONVERT", "EXISTS", "SELECT" };
 
         private readonly List<Token> t;
         private int p;
@@ -103,12 +102,41 @@ namespace MSSQL_Server.Sql
                    !(Peek.Kind == Tk.Ident && !Peek.Quoted && StatementStarts.Contains(Peek.Text)))
                 p++;
         }
+        private Stmt ParseTryCatch()
+        {
+            var tryStmts = ParseUntilEnd("TRY");
+            ExpectKw("BEGIN");
+            ExpectKw("CATCH");
+            var catchStmts = ParseUntilEnd("CATCH");
+            return new TryCatchStmt(tryStmts, catchStmts);
+        }
 
+        // Parses statements up to "END <what>" and consumes that END.
+        private List<Stmt> ParseUntilEnd(string what)
+        {
+            var stmts = new List<Stmt>();
+            while (true)
+            {
+                SkipSemicolons();
+                if (Peek.Is("END"))
+                {
+                    p++;
+                    ExpectKw(what);
+                    return stmts;
+                }
+                if (Peek.Kind == Tk.End)
+                    throw new SqlException(102,
+                        $"Incorrect syntax near the end of the batch: BEGIN {what} without a matching END {what}.", 15);
+                stmts.Add(ParseStatement());
+            }
+        }
         private void SkipSemicolons() { while (AcceptSym(";")) { } }
 
         // BEGIN TRAN ...   |   BEGIN <statements> END   (control-flow block)
         private Stmt ParseBegin()
         {
+            if (AcceptKw("TRY")) return ParseTryCatch();      // <- new line
+
             if (AcceptKw("TRAN") || AcceptKw("TRANSACTION"))
             {
                 SkipTransactionName();
@@ -142,12 +170,11 @@ namespace MSSQL_Server.Sql
             return new DeclareVars(vars);
         }
 
-        // Data type spec used by DECLARE / CAST / CONVERT: NAME [(n | MAX [, s])]
         private (DataType Type, int Length) ParseTypeSpec()
         {
             if (Peek.Kind != Tk.Ident) throw Syntax();
             string typeName = Next().Text.ToUpperInvariant();
-            if (AcceptSym(".")) typeName = Identifier().ToUpperInvariant(); // schema-prefixed type, e.g. sys.sysname
+            if (AcceptSym(".")) typeName = Identifier().ToUpperInvariant();
             if (typeName == "TABLE") throw new SqlException(102, "Table variables are not supported by this engine.", 15);
             if (typeName == "CURSOR") throw new SqlException(102, "Cursor declarations are not supported by this engine.", 15);
 
@@ -155,28 +182,19 @@ namespace MSSQL_Server.Sql
             if (AcceptSym("("))
             {
                 len = AcceptKw("MAX") ? -1 : (int)ParseNumberLiteral();
-                while (AcceptSym(",")) ParseNumberLiteral(); // DECIMAL(p,s) precision digits
+                while (AcceptSym(",")) ParseNumberLiteral();
                 ExpectSym(")");
             }
 
             var (type, defLen) = ResolveDataType(typeName);
             if (type == DataType.NVarChar)
             {
-                if (defLen > 0) len = defLen; // SYSNAME=128, UNIQUEIDENTIFIER=36, text/date-time/binary family=4000
+                if (defLen > 0) len = defLen;
                 if (len < 0 || len > 4000) len = 4000;
             }
             return (type, len);
         }
 
-        /// <summary>
-        /// Shared data-type name resolution for DECLARE/CAST/CONVERT (ParseTypeSpec) and
-        /// CREATE TABLE (ParseColumnDef). SMO's Object Explorer batches declare columns and
-        /// variables typed SYSNAME, UNIQUEIDENTIFIER, DATETIME, BINARY and similar system
-        /// types, so every unrecognized name resolves to Unicode character data instead of
-        /// raising error 2715 ("Cannot find data type"), which breaks Object Explorer
-        /// enumeration. Returns the engine type plus the fixed default length for system
-        /// types (0 = caller decides: explicit (n), or the SQL Server default for bare names).
-        /// </summary>
         private static (DataType Type, int DefaultLength) ResolveDataType(string typeName)
         {
             DataType type = typeName switch
@@ -189,30 +207,27 @@ namespace MSSQL_Server.Sql
             };
             if (type != DataType.NVarChar) return (type, 0);
 
-            // Everything else is stored as Unicode character data.
             int defLen = typeName switch
             {
-                "SYSNAME" => 128,                               // built-in alias of nvarchar(128)
+                "SYSNAME" => 128,
                 "UNIQUEIDENTIFIER" => 36,
                 "TEXT" or "NTEXT" or "XML" or "SQL_VARIANT" or
                 "BINARY" or "VARBINARY" or "IMAGE" or
                 "TIMESTAMP" or "ROWVERSION" or "TIME" => 4000,
                 _ when typeName.StartsWith("DATE") || typeName.StartsWith("DATETIME") => 4000,
-                _ => 0                                          // NVARCHAR/VARCHAR/NCHAR/CHAR keep caller default
+                _ => 0
             };
             return (type, defLen);
         }
 
         private Stmt ParseSetStatement()
         {
-            // SET @variable = expr   (assignment)
             if (Peek.Kind == Tk.Variable && !Peek.Text.StartsWith("@@"))
             {
                 string name = Next().Text;
                 if (!AcceptSym("=")) throw Syntax();
                 return new SetVar(name, ParseExpr());
             }
-            // SET NOCOUNT ON / SET ANSI_NULLS ON / SET LOCK_TIMEOUT n / ... - accepted, no effect
             SkipToStatementEnd();
             return new NoOp();
         }
@@ -243,36 +258,57 @@ namespace MSSQL_Server.Sql
 
             var name = ParseObjectName();
             if (!name.Name.Equals("sp_executesql", StringComparison.OrdinalIgnoreCase))
-                throw new SqlException(2812,
-                    $"Could not find stored procedure '{(name.Schema != null ? name.Schema + "." : "")}{name.Name}'. Only sp_executesql is supported.");
+                throw new SqlException(
+                    2812,
+                    $"Could not find stored procedure '{(name.Schema != null ? name.Schema + "." : "")}{name.Name}'. Only sp_executesql is supported.",
+                    16);
 
             var args = new List<Expr>();
             var prms = new List<ExecParam>();
-            if (AcceptSym(","))
+
+            // First positional argument: the batch text (N'...' or @stmt).
+            // Real T-SQL has NO comma before it.
+            if (IsPositionalArg())
+                args.Add(ParseExpr());
+
+            // Remaining arguments, comma-separated
+            while (AcceptSym(","))
             {
-                do
+                if (Peek.Kind == Tk.Variable && !Peek.Text.StartsWith("@@") &&
+                    p + 1 < t.Count && t[p + 1].IsSym("="))
                 {
-                    // @param = value [OUTPUT]
-                    if (Peek.Kind == Tk.Variable && !Peek.Text.StartsWith("@@") &&
-                        p + 1 < t.Count && t[p + 1].IsSym("="))
-                    {
-                        string pn = Next().Text;
-                        p++; // '='
-                        var val = ParseExpr();
-                        bool output = AcceptKw("OUTPUT") || AcceptKw("OUT");
-                        prms.Add(new ExecParam(pn, val, output));
-                    }
-                    else
-                    {
-                        args.Add(ParseExpr()); // N'batch' or N'@p type,...' definition string
-                    }
-                } while (AcceptSym(","));
+                    string pn = Next().Text; p++;                 // consume name + '='
+                    var val = ParseExpr();
+                    bool output = AcceptKw("OUTPUT") || AcceptKw("OUT");
+                    prms.Add(new ExecParam(pn, val, output));
+                }
+                else
+                {
+                    args.Add(ParseExpr());                        // N'@P1 int, @P2 int' definition string
+                }
             }
 
             if (args.Count == 0)
-                throw new SqlException(201,
-                    "Procedure or function 'sp_executesql' expects parameter '@stmt', which was not supplied.");
+                throw new SqlException(
+                    201,
+                    "Procedure or function 'sp_executesql' expects parameter '@stmt', which was not supplied.",
+                    16);
+
             return new ExecSql(args[0], prms.Count > 0 ? prms : null);
+        }
+
+        /// <summary>
+        /// True when the current token is a positional argument (string literal or a
+        /// variable NOT followed by '='), as opposed to a named "@p = value" pair.
+        /// </summary>
+        private bool IsPositionalArg()
+        {
+            if (Peek.Kind == Tk.String) return true;
+            if (Peek.Kind == Tk.Variable && !Peek.Text.StartsWith("@@"))
+            {
+                return !(p + 1 < t.Count && t[p + 1].IsSym("="));
+            }
+            return false;
         }
 
         private Stmt ParseCreate()
@@ -293,26 +329,22 @@ namespace MSSQL_Server.Sql
         {
             string name = Identifier();
             string typeName = Identifier().ToUpperInvariant();
-            if (AcceptSym(".")) typeName = Identifier().ToUpperInvariant(); // schema-prefixed type, e.g. sys.sysname
+            if (AcceptSym(".")) typeName = Identifier().ToUpperInvariant();
             int length = 0;
             if (AcceptSym("("))
             {
                 if (AcceptKw("MAX")) length = -1;
                 else length = (int)ParseNumberLiteral();
-                while (AcceptSym(",")) ParseNumberLiteral(); // DECIMAL(p,s)
+                while (AcceptSym(",")) ParseNumberLiteral();
                 ExpectSym(")");
             }
 
-            // Any system type name is accepted: SMO temp-table definitions use SYSNAME,
-            // DATETIME, UNIQUEIDENTIFIER, BINARY etc. Types the engine does not model
-            // natively fall back to Unicode character data (raising error 2715 would
-            // break SSMS Object Explorer enumeration).
             var (type, defLen) = ResolveDataType(typeName);
             if (type == DataType.NVarChar)
             {
-                if (defLen > 0) length = defLen;                // SYSNAME=128, UNIQUEIDENTIFIER=36, text/date-time=4000
-                else if (length == 0) length = 1;               // bare VARCHAR/NVARCHAR/NCHAR/CHAR defaults to (1)
-                if (length < 0 || length > 4000) length = 4000; // MAX is capped (no PLP support yet)
+                if (defLen > 0) length = defLen;
+                else if (length == 0) length = 1;
+                if (length < 0 || length > 4000) length = 4000;
             }
 
             bool notNull = false, pk = false, identity = false;
@@ -327,8 +359,8 @@ namespace MSSQL_Server.Sql
                     if (AcceptSym("(")) { ParseNumberLiteral(); ExpectSym(","); ParseNumberLiteral(); ExpectSym(")"); }
                     notNull = true;
                 }
-                else if (AcceptKw("DEFAULT")) SkipColumnDefault(); // DEFAULT (getdate()) / DEFAULT 0 / DEFAULT NULL
-                else if (AcceptKw("COLLATE")) Next();              // ignore the collation identifier
+                else if (AcceptKw("DEFAULT")) SkipColumnDefault();
+                else if (AcceptKw("COLLATE")) Next();
                 else break;
             }
             if (identity && type is not (DataType.Int or DataType.BigInt))
@@ -336,7 +368,6 @@ namespace MSSQL_Server.Sql
             return new ColumnDef(name, type, length, notNull, pk, identity);
         }
 
-        /// <summary>Consume and ignore a column DEFAULT expression (SMO DDL compatibility).</summary>
         private void SkipColumnDefault()
         {
             if (AcceptSym("("))
@@ -350,8 +381,8 @@ namespace MSSQL_Server.Sql
                 }
                 return;
             }
-            if (Peek.IsSym("-") || Peek.IsSym("+")) Next(); // signed literal
-            if (Peek.Kind != Tk.End) Next();                // number, string, NULL or identifier
+            if (Peek.IsSym("-") || Peek.IsSym("+")) Next();
+            if (Peek.Kind != Tk.End) Next();
         }
 
         private double ParseNumberLiteral()
@@ -470,7 +501,16 @@ namespace MSSQL_Server.Sql
                 } while (AcceptSym(","));
             }
 
-            return new Select(top, distinct, items, from, joins, where, groupBy, having, order);
+            // UNION [ALL] <select>
+            Select? unionRight = null;
+            bool unionAll = false;
+            if (AcceptKw("UNION"))
+            {
+                unionAll = AcceptKw("ALL");
+                unionRight = ParseSelect();
+            }
+
+            return new Select(top, distinct, items, from, joins, where, groupBy, having, order, unionRight, unionAll);
         }
 
         private TableRef ParseTableRef()
@@ -486,23 +526,20 @@ namespace MSSQL_Server.Sql
         {
             if (AcceptSym("*")) return new SelectItem(null, null, true, null);
 
-            // alias.*
             if (Peek.Kind == Tk.Ident && t[p + 1].IsSym(".") && t[p + 2].IsSym("*"))
             {
                 string tbl = Next().Text; p += 2;
                 return new SelectItem(null, null, true, tbl);
             }
 
-            // @variable = expr   (assignment into a scalar variable)
             if (Peek.Kind == Tk.Variable && !Peek.Text.StartsWith("@@") &&
                 p + 1 < t.Count && t[p + 1].IsSym("="))
             {
                 string varName = Next().Text;
-                p++; // '='
+                p++;
                 return new SelectItem(ParseExpr(), null, false, null, varName);
             }
 
-            // alias = expr
             if (Peek.Kind == Tk.Ident && t[p + 1].IsSym("=") && !Reserved.Contains(Peek.Text))
             {
                 string alias = Next().Text; p++;
@@ -563,10 +600,20 @@ namespace MSSQL_Server.Sql
                 if (AcceptKw("IN"))
                 {
                     ExpectSym("(");
-                    var list = new List<Expr>();
-                    do { list.Add(ParseExpr()); } while (AcceptSym(","));
-                    ExpectSym(")");
-                    l = new InExpr(l, list, neg);
+                    if (Peek.Is("SELECT"))
+                    {
+                        p++;
+                        var sub = ParseSelect();
+                        ExpectSym(")");
+                        l = new InSubqueryExpr(l, sub, neg);
+                    }
+                    else
+                    {
+                        var list = new List<Expr>();
+                        do { list.Add(ParseExpr()); } while (AcceptSym(","));
+                        ExpectSym(")");
+                        l = new InExpr(l, list, neg);
+                    }
                     continue;
                 }
                 if (AcceptKw("BETWEEN"))
@@ -584,8 +631,6 @@ namespace MSSQL_Server.Sql
         private Expr ParseAdditive()
         {
             var l = ParseMultiplicative();
-            // T-SQL precedence: + - & ^ | share ONE level, left-associative
-            // (so "user_access & 1 = 1" parses as "(user_access & 1) = 1").
             while (Peek.IsSym("+") || Peek.IsSym("-") || Peek.IsSym("&") || Peek.IsSym("^") || Peek.IsSym("|"))
                 l = new Bin(Next().Text, l, ParseMultiplicative());
             return l;
@@ -603,7 +648,7 @@ namespace MSSQL_Server.Sql
         {
             if (AcceptSym("-")) return new Un("-", ParseUnary());
             if (AcceptSym("+")) return ParseUnary();
-            if (AcceptSym("~")) return new Un("~", ParseUnary()); // bitwise NOT
+            if (AcceptSym("~")) return new Un("~", ParseUnary());
             return ParsePrimary();
         }
 
@@ -664,6 +709,14 @@ namespace MSSQL_Server.Sql
                         ExpectSym(")");
                         return new ExistsExpr(sel);
                     }
+                    // --- NEW: scalar subquery (SELECT ...) used as a value ---
+                    if (tok.Is("SELECT"))
+                    {
+                        p++;
+                        var sel = ParseSelect();
+                        return new SubqueryExpr(sel);
+                    }
+                    
                     if (!tok.Quoted && Reserved.Contains(tok.Text)) throw Syntax();
                     p++;
                     if (AcceptSym("("))
@@ -681,7 +734,7 @@ namespace MSSQL_Server.Sql
                     {
                         string second = Identifier();
                         if (AcceptSym("."))
-                        {   // db.schema.col -> ignore the qualifiers we do not use
+                        {
                             return new Col(second, Identifier());
                         }
                         return new Col(tok.Text, second);

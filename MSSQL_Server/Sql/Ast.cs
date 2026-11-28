@@ -19,6 +19,10 @@ namespace MSSQL_Server.Sql
     internal sealed record CaseExpr(Expr? Input, List<(Expr When, Expr Then)> Whens, Expr? Else) : Expr;
     /// <summary>EXISTS (SELECT ...) - evaluated by running the sub-select.</summary>
     internal sealed record ExistsExpr(Select Select) : Expr;
+    /// <summary>Scalar subquery used as an expression: (SELECT ...).</summary>
+    internal sealed record SubqueryExpr(Select Select) : Expr;
+    /// <summary>expr IN (SELECT ...) - distinct from the literal-list InExpr.</summary>
+    internal sealed record InSubqueryExpr(Expr E, Select Subquery, bool Not) : Expr;
 
     internal abstract record Stmt;
     internal sealed record NoOp : Stmt;
@@ -39,9 +43,13 @@ namespace MSSQL_Server.Sql
     internal sealed record OrderItem(Expr Expression, bool Descending);
     internal sealed record Select(
         int? Top, bool Distinct, List<SelectItem> Items, TableRef? From, List<JoinClause> Joins,
-        Expr? Where, List<Expr> GroupBy, Expr? Having, List<OrderItem> OrderBy) : Stmt;
+        Expr? Where, List<Expr> GroupBy, Expr? Having, List<OrderItem> OrderBy,
+        Select? UnionRight = null, bool UnionAll = false) : Stmt;
     internal sealed record Update(ObjectName Table, List<(string Column, Expr Value)> Sets, Expr? Where) : Stmt;
     internal sealed record Delete(ObjectName Table, Expr? Where) : Stmt;
+
+    /// <summary>BEGIN TRY ... END TRY BEGIN CATCH ... END CATCH.</summary>
+    internal sealed record TryCatchStmt(List<Stmt> Try, List<Stmt> Catch) : Stmt;
 
     // ---- T-SQL scripting statements (needed by SSMS post-connect scripts) ----
 

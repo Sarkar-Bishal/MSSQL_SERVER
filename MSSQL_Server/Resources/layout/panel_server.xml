@@ -157,7 +157,7 @@
             android:layout_height="wrap_content"/>
 
         <TextView
-            android:text="MSSQL SERVER 1.0 - unofficial open source project (engine + client merged)"
+            android:text="MSSQL SERVER 1.1 - unofficial open source project (engine + client merged)"
             android:textSize="11sp"
             android:textColor="#94A3B8"
             android:gravity="center"

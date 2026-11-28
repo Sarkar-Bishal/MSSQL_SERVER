@@ -43,6 +43,21 @@ namespace MSSQL_Server.Tds
             return new TokenBuilder().Byte(EnvChange).U16(body.Length).Bytes(body).ToArray();
         }
 
+        /// <summary>
+        /// ENVCHANGE type 7 (SQL collation): new value is the 5-byte collation as a B_VARBYTE,
+        /// old value is empty. Without it SqlClient has no default collation and throws a
+        /// NullReferenceException in TDSExecuteRPCAddParameter for string RPC parameters.
+        /// </summary>
+        public static byte[] EnvChangeCollationToken()
+        {
+            var body = new TokenBuilder()
+                .Byte(7)
+                .Byte((byte)DefaultCollation.Length).Bytes(DefaultCollation)
+                .Byte(0)
+                .ToArray();
+            return new TokenBuilder().Byte(EnvChange).U16(body.Length).Bytes(body).ToArray();
+        }
+
         public static byte[] LoginAckToken(uint tdsVersion, string programName)
         {
             var body = new TokenBuilder()

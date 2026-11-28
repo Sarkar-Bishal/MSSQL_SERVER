@@ -60,7 +60,17 @@ namespace MSSQL_Server.Tds
                 case 0x7F: Need(d, p, 8); { long v = BitConverter.ToInt64(d, p); p += 8; return v; }
                 case 0x3B: Need(d, p, 4); { double v = BitConverter.ToSingle(d, p); p += 4; return v; }
                 case 0x3E: Need(d, p, 8); { double v = BitConverter.ToDouble(d, p); p += 8; return v; }
-
+                case 0x63:
+                case 0x23: // NTEXT / TEXT: max length (4) + collation (5), then LONGLEN + data
+                    {
+                        Need(d, p, 9); p += 9;
+                        Need(d, p, 4);
+                        uint tlen = BitConverter.ToUInt32(d, p); p += 4;
+                        if (tlen == 0xFFFFFFFF) return null;
+                        if (tlen > (uint)(d.Length - p)) throw new InvalidDataException("Truncated RPC request.");
+                        var tdata = d.AsSpan(p, (int)tlen).ToArray(); p += (int)tlen;
+                        return (type == 0x63 ? Encoding.Unicode : Encoding.Latin1).GetString(tdata);
+                    }
                 case 0x26: // INTN
                 {
                     Need(d, p, 2); p++; // max length

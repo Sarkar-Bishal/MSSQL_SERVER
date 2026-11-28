@@ -4,9 +4,6 @@ using MSSQL_Server.Sql;
 
 namespace MSSQL_Server.Engine
 {
-    /// <summary>
-    /// Executes parsed statements against file-backed tables. Engine-wide lock: one statement at a time.
-    /// </summary>
     public sealed class SqlEngine
     {
         public const string VersionText =
@@ -31,7 +28,8 @@ namespace MSSQL_Server.Engine
                 string name = File.ReadAllText(nameFile).Trim();
                 if (name.Length > 0) databases[name] = new Database(name, dir);
             }
-            if (!databases.ContainsKey("master")) CreateDatabaseInternal("master");
+            foreach (var sys in new[] { "master", "tempdb", "model", "msdb" })
+                if (!databases.ContainsKey(sys)) CreateDatabaseInternal(sys);
         }
 
         public IReadOnlyList<string> DatabaseNames
@@ -39,11 +37,10 @@ namespace MSSQL_Server.Engine
             get { lock (gate) return databases.Values.Select(d => d.Name).OrderBy(n => n).ToList(); }
         }
 
-        // ---------------------------------------------------------------- entry point
-
         public BatchResult ExecuteBatch(string sql, SqlSession session)
         {
             var result = new BatchResult();
+            if (SmoCompat.TryHandle(sql, ServerName, root, result)) return result;
             List<Stmt> statements;
             try { statements = Parser.ParseBatch(sql); }
             catch (SqlException ex) { result.Error = ex; return result; }
@@ -59,28 +56,24 @@ namespace MSSQL_Server.Engine
             return result;
         }
 
-        /// <summary>
-        /// Runs one statement and appends its result(s). Control-flow statements (IF/BEGIN...END,
-        /// RETURN, EXEC sp_executesql) can produce several results, so they recurse into RunStatement.
-        /// </summary>
         private void RunStatement(Stmt stmt, SqlSession ses, BatchResult result)
         {
             switch (stmt)
             {
                 case IfStmt s:
-                {
-                    bool cond;
-                    try { cond = Evaluator.IsTrue(Evaluator.Eval(s.Condition, EmptyContext(ses))); }
-                    catch (SqlException ex) { result.Error = ex; return; }
-                    catch (Exception ex) when (ex is not OutOfMemoryException)
                     {
-                        result.Error = new SqlException(50000, "Internal error: " + ex.Message);
+                        bool cond;
+                        try { cond = Evaluator.IsTrue(Evaluator.Eval(s.Condition, EmptyContext(ses))); }
+                        catch (SqlException ex) { result.Error = ex; return; }
+                        catch (Exception ex) when (ex is not OutOfMemoryException)
+                        {
+                            result.Error = new SqlException(50000, "Internal error: " + ex.Message);
+                            return;
+                        }
+                        if (cond) RunStatement(s.Then, ses, result);
+                        else if (s.Else != null) RunStatement(s.Else, ses, result);
                         return;
                     }
-                    if (cond) RunStatement(s.Then, ses, result);
-                    else if (s.Else != null) RunStatement(s.Else, ses, result);
-                    return;
-                }
                 case BlockStmt b:
                     foreach (var st in b.Statements)
                     {
@@ -94,20 +87,38 @@ namespace MSSQL_Server.Engine
                 case ExecSql e:
                     RunExecSql(e, ses, result);
                     return;
-                default:
-                {
-                    StatementResult r;
-                    try { r = Execute(stmt, ses); }
-                    catch (SqlException ex) { result.Error = ex; return; }
-                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                case TryCatchStmt tc:
                     {
-                        result.Error = new SqlException(50000, "Internal error: " + ex.Message);
+                        foreach (var s1 in tc.Try)
+                        {
+                            RunStatement(s1, ses, result);
+                            if (result.Error != null || result.Stopped) break;
+                        }
+                        if (result.Error != null)
+                        {
+                            result.Error = null;                       // error caught: run the CATCH block instead
+                            foreach (var s2 in tc.Catch)
+                            {
+                                RunStatement(s2, ses, result);
+                                if (result.Error != null || result.Stopped) break;
+                            }
+                        }
                         return;
                     }
-                    ses.LastRowCount = r.RowCount;
-                    result.Statements.Add(r);
-                    return;
-                }
+                default:
+                    {
+                        StatementResult r;
+                        try { r = Execute(stmt, ses); }
+                        catch (SqlException ex) { result.Error = ex; return; }
+                        catch (Exception ex) when (ex is not OutOfMemoryException)
+                        {
+                            result.Error = new SqlException(50000, "Internal error: " + ex.Message);
+                            return;
+                        }
+                        ses.LastRowCount = r.RowCount;
+                        result.Statements.Add(r);
+                        return;
+                    }
             }
         }
 
@@ -157,7 +168,6 @@ namespace MSSQL_Server.Engine
             return new StatementResult { Kind = StatementKind.Other };
         }
 
-        /// <summary>EXISTS (SELECT ...) support used by Evaluator.</summary>
         internal bool ExecExists(Select s, SqlSession ses)
         {
             var r = ExecSelect(s, ses);
@@ -183,10 +193,6 @@ namespace MSSQL_Server.Engine
             SetVar sv => ExecSetVar(sv, ses),
             _ => throw new SqlException(102, "Unsupported statement.", 15)
         };
-
-        // ---------------------------------------------------------------- transactions
-        // Atomicity via in-memory undo: changes are applied immediately (other sessions can see them,
-        // i.e. READ UNCOMMITTED), written to disk only on COMMIT, and undone on ROLLBACK or disconnect.
 
         public void EndSession(SqlSession session)
         {
@@ -239,8 +245,6 @@ namespace MSSQL_Server.Engine
             ses.Tx = null;
         }
 
-        // ---------------------------------------------------------------- databases
-
         private Database CreateDatabaseInternal(string name)
         {
             string dir = Path.Combine(root, Convert.ToHexString(Encoding.UTF8.GetBytes(name.ToLowerInvariant())));
@@ -267,8 +271,10 @@ namespace MSSQL_Server.Engine
         private StatementResult ExecDropDb(DropDb d, SqlSession ses)
         {
             var db = GetDatabase(d.Name);
-            if (db.Name.Equals("master", StringComparison.OrdinalIgnoreCase))
-                throw new SqlException(3701, "Cannot drop the system database 'master'.");
+            if (new[] { "master", "tempdb", "model", "msdb" }
+                    .Contains(db.Name, StringComparer.OrdinalIgnoreCase))
+                throw new SqlException(3701, $"Cannot drop the system database '{db.Name}'.");
+
             if (db.Name.Equals(ses.Database, StringComparison.OrdinalIgnoreCase))
                 throw new SqlException(3702, $"Cannot drop database \"{db.Name}\" because it is currently in use.");
             databases.Remove(db.Name);
@@ -283,8 +289,6 @@ namespace MSSQL_Server.Engine
             ses.Database = db.Name;
             return new StatementResult { Kind = StatementKind.Other, NewDatabase = db.Name, OldDatabase = old };
         }
-
-        // ---------------------------------------------------------------- table lookup
 
         private static bool IsSystemSchema(string? schema) =>
             schema != null && (schema.Equals("sys", StringComparison.OrdinalIgnoreCase) ||
@@ -320,11 +324,8 @@ namespace MSSQL_Server.Engine
             switch (key)
             {
                 case "sys.databases":
-                {
-                    // Wide shape: SMO / Object Explorer (Databases folder) SELECTs dozens of
-                    // columns from sys.databases; any missing column aborts the tree build with
-                    // "Invalid column name". Values are sensible defaults for a fresh engine.
-                    var t = new Table("databases", new()
+                    {
+                        var t = new Table("databases", new()
                     {
                         S("name"), B("database_id"), B("source_database_id"), S("create_date"),
                         I("compatibility_level"), S("collation_name"), I("state"), S("state_desc"),
@@ -347,182 +348,220 @@ namespace MSSQL_Server.Engine
                         I("is_memory_optimized_elevate_to_snapshot_on"), I("containment"),
                         S("containment_desc"), I("default_language_lcid"), S("default_language_name"),
                         I("default_fulltext_language_lcid"), S("default_fulltext_language_name"),
+                        I("catalog_collation_type"), S("catalog_collation_type_desc"),
+                        I("is_distributor"), I("is_published"), I("is_subscribed"),
+                        I("is_merge_published"), I("is_sync_with_backup"),
+                        I("delayed_durability"), S("delayed_durability_desc"),
+                        I("is_auto_update_stats_async_on"), I("target_recovery_time_in_seconds"),
+                        I("is_ledger_on"), I("is_in_standby"), I("is_cleanly_shutdown"),
+                        I("is_ansi_null_default_on"), I("is_auto_create_stats_incremental_on"),
+                        I("is_remote_data_archive_enabled"),
                     });
-                    int id = 1;
-                    foreach (var d in databases.Values.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase))
-                        t.Rows.Add(new object?[]
-                        {
+                        int id = 1;
+                        foreach (var d in databases.Values.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase))
+                            t.Rows.Add(new object?[]
+                            {
                             d.Name, (long)id++, null, stamp, 160L, "SQL_Latin1_General_CP1_CI_AS",
                             0L, "ONLINE", 0L, 0L, "MULTI_USER",
                             0L, 0L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 0L, 0L, 0L, 1L, 0L,
                             0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, "OFF", 0L,
                             3L, "SIMPLE", 0L, "NONE", 0L, "NOTHING",
                             0L, 0L, 0L, 0L, 0L, "NONE", 1033L, "us_english", 1033L, "us_english",
+                            2L, "SQL_Latin1_General_CP1_CI_AS",
+                            0L, 0L, 0L, 0L, 0L,
+                            0L, "DISABLED",
+                            0L, 60L,
+                            0L, 0L, 1L,
+                            0L, 0L,
+                            0L,
                         });
-                    return t;
-                }
+                        return t;
+                    }
                 case "sys.server_principals":
-                {
-                    var t = new Table("server_principals", new()
+                    {
+                        var t = new Table("server_principals", new()
                     {
                         B("principal_id"), B("sid"), S("name"), S("type"), S("type_desc"),
                         I("is_disabled"), S("create_date"), S("modify_date"),
                         S("default_database_name"), S("default_language_name"),
                         S("default_schema_name"), B("credential_id"), B("owning_principal_id"),
                     });
-                    t.Rows.Add(new object?[] { 1L, null, "sa", "S", "SQL_LOGIN", 0L, stamp, stamp,
+                        t.Rows.Add(new object?[] { 1L, null, "sa", "S", "SQL_LOGIN", 0L, stamp, stamp,
                         "master", "us_english", "dbo", null, null });
-                    return t;
-                }
+                        return t;
+                    }
+                case "sys.dm_failed_batches":
+                    {
+                        // One row per 4000-char chunk of each recent failing batch; concatenate sql_text by (batch_id, part).
+                        var t = new Table("dm_failed_batches", new()
+    {
+        I("batch_id"), I("part"), I("error_number"),
+        new ColumnDef("error_message", DataType.NVarChar, 4000, false, false, false),
+        new ColumnDef("sql_text", DataType.NVarChar, 4000, false, false, false)
+    });
+                        foreach (var e in MSSQL_Server.Logging.FailedBatchBuffer.Snapshot())
+                        {
+                            string msg = e.ErrorMessage.Length > 4000 ? e.ErrorMessage.Substring(0, 4000) : e.ErrorMessage;
+                            int part = 0;
+                            for (int i = 0; i < Math.Max(e.Sql.Length, 1); i += 4000)
+                            {
+                                int take = Math.Min(4000, e.Sql.Length - i);
+                                t.Rows.Add(new object?[] { (long)e.Id, (long)part++, (long)e.ErrorNumber, msg, e.Sql.Substring(i, take) });
+                            }
+                        }
+                        return t;
+                    }
                 case "sys.sql_logins":
-                {
-                    var t = new Table("sql_logins", new()
+                    {
+                        var t = new Table("sql_logins", new()
                     {
                         B("principal_id"), B("sid"), S("name"), S("type"), S("type_desc"),
                         I("is_disabled"), S("create_date"), S("modify_date"),
                         S("default_database_name"), S("default_language_name"),
                         I("is_policy_checked"), I("is_expiration_checked"), B("credential_id"),
                     });
-                    t.Rows.Add(new object?[] { 1L, null, "sa", "S", "SQL_LOGIN", 0L, stamp, stamp,
+                        t.Rows.Add(new object?[] { 1L, null, "sa", "S", "SQL_LOGIN", 0L, stamp, stamp,
                         "master", "us_english", 0L, 0L, null });
-                    return t;
-                }
+                        return t;
+                    }
                 case "sys.tables":
-                {
-                    var t = new Table("tables", ObjectColumns());
-                    long id = 100;
-                    foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                        t.Rows.Add(ObjectRow(tb.Name, id++, "U ", "USER_TABLE"));
-                    return t;
-                }
+                    {
+                        var t = new Table("tables", ObjectColumns());
+                        long id = 100;
+                        foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                            t.Rows.Add(ObjectRow(tb.Name, id++, "U ", "USER_TABLE"));
+                        return t;
+                    }
                 case "sys.views":
-                    return new Table("views", ObjectColumns()); // views are not stored (yet)
+                    return new Table("views", ObjectColumns());
                 case "sys.procedures":
                     return new Table("procedures", ObjectColumns());
                 case "sys.objects":
                 case "sys.all_objects":
-                {
-                    var t = new Table("objects", ObjectColumns());
-                    long id = 100;
-                    foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                        t.Rows.Add(ObjectRow(tb.Name, id++, "U ", "USER_TABLE"));
-                    return t;
-                }
+                    {
+                        var t = new Table("objects", ObjectColumns());
+                        long id = 100;
+                        foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                            t.Rows.Add(ObjectRow(tb.Name, id++, "U ", "USER_TABLE"));
+                        return t;
+                    }
                 case "sys.schemas":
-                {
-                    var t = new Table("schemas", new() { B("schema_id"), S("name") });
-                    t.Rows.Add(new object?[] { 1L, "dbo" });
-                    t.Rows.Add(new object?[] { 2L, "sys" });
-                    return t;
-                }
+                    {
+                        var t = new Table("schemas", new() { B("schema_id"), S("name") });
+                        t.Rows.Add(new object?[] { 1L, "dbo" });
+                        t.Rows.Add(new object?[] { 2L, "sys" });
+                        return t;
+                    }
                 case "sys.columns":
-                {
-                    var t = new Table("columns", new()
+                    {
+                        var t = new Table("columns", new()
                         { B("object_id"), B("column_id"), S("name"), B("system_type_id"), B("max_length"), I("precision"), I("scale"), I("is_nullable"), I("is_identity") });
-                    foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        long oid = TableObjectId(db, tb.Name);
-                        for (int i = 0; i < tb.Columns.Count; i++)
+                        foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
                         {
-                            var c = tb.Columns[i];
-                            var (sysId, maxLen, prec, scale) = SysTypeOf(c.Type, c.Length);
-                            t.Rows.Add(new object?[] { oid, (long)(i + 1), c.Name, sysId, maxLen, prec, scale,
+                            long oid = TableObjectId(db, tb.Name);
+                            for (int i = 0; i < tb.Columns.Count; i++)
+                            {
+                                var c = tb.Columns[i];
+                                var (sysId, maxLen, prec, scale) = SysTypeOf(c.Type, c.Length);
+                                t.Rows.Add(new object?[] { oid, (long)(i + 1), c.Name, sysId, maxLen, prec, scale,
                                 c.NotNull ? 0L : 1L, c.Identity ? 1L : 0L });
+                            }
                         }
+                        return t;
                     }
-                    return t;
-                }
                 case "sys.indexes":
-                {
-                    var t = new Table("indexes", new()
-                        { B("object_id"), S("name"), B("index_id"), B("type"), S("type_desc"), I("is_unique"), I("is_primary_key"), I("is_unique_constraint"), I("fill_factor") });
-                    foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
                     {
-                        bool pk = tb.Columns.Any(c => c.PrimaryKey);
-                        t.Rows.Add(new object?[] { TableObjectId(db, tb.Name), pk ? "PK_" + tb.Name : null,
+                        var t = new Table("indexes", new()
+                        { B("object_id"), S("name"), B("index_id"), B("type"), S("type_desc"), I("is_unique"), I("is_primary_key"), I("is_unique_constraint"), I("fill_factor") });
+                        foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                        {
+                            bool pk = tb.Columns.Any(c => c.PrimaryKey);
+                            t.Rows.Add(new object?[] { TableObjectId(db, tb.Name), pk ? "PK_" + tb.Name : null,
                             1L, 1L, "CLUSTERED", pk ? 1L : 0L, pk ? 1L : 0L, 0L, 0L });
+                        }
+                        return t;
                     }
-                    return t;
-                }
                 case "sys.configurations":
-                {
-                    var t = new Table("configurations", new()
+                    {
+                        var t = new Table("configurations", new()
                         { B("configuration_id"), S("name"), B("value"), B("minimum"), B("maximum"), B("value_in_use"), I("is_dynamic"), I("is_advanced"), S("description") });
-                    void Add(long id, string name, long value, long min, long max, bool dyn, string desc) =>
-                        t.Rows.Add(new object?[] { id, name, value, min, max, value, dyn ? 1L : 0L, 0L, desc });
-                    Add(100, "remote query timeout (s)", 600, 0, 2147483647, true, "remote query timeout");
-                    Add(101, "user connections", 0, 0, 32767, false, "user connections");
-                    Add(102, "max server memory (MB)", 2147483647, 16, 2147483647, true, "max server memory");
-                    Add(103, "min server memory (MB)", 0, 0, 2147483647, true, "min server memory");
-                    Add(104, "fill factor (%)", 0, 0, 100, false, "fill factor");
-                    Add(105, "nested triggers", 1, 0, 1, true, "nested triggers");
-                    Add(106, "transform noise words", 0, 0, 1, true, "transform noise words");
-                    Add(107, "two digit year cutoff", 2049, 1753, 9999, false, "two digit year cutoff");
-                    Add(108, "cost threshold for parallelism", 5, 0, 32767, true, "cost threshold for parallelism");
-                    Add(109, "max degree of parallelism", 0, 0, 32767, true, "max degree of parallelism");
-                    return t;
-                }
+                        void Add(long id, string name, long value, long min, long max, bool dyn, string desc) =>
+                            t.Rows.Add(new object?[] { id, name, value, min, max, value, dyn ? 1L : 0L, 0L, desc });
+                        Add(100, "remote query timeout (s)", 600, 0, 2147483647, true, "remote query timeout");
+                        Add(101, "user connections", 0, 0, 32767, false, "user connections");
+                        Add(102, "max server memory (MB)", 2147483647, 16, 2147483647, true, "max server memory");
+                        Add(103, "min server memory (MB)", 0, 0, 2147483647, true, "min server memory");
+                        Add(104, "fill factor (%)", 0, 0, 100, false, "fill factor");
+                        Add(105, "nested triggers", 1, 0, 1, true, "nested triggers");
+                        Add(106, "transform noise words", 0, 0, 1, true, "transform noise words");
+                        Add(107, "two digit year cutoff", 2049, 1753, 9999, false, "two digit year cutoff");
+                        Add(108, "cost threshold for parallelism", 5, 0, 32767, true, "cost threshold for parallelism");
+                        Add(109, "max degree of parallelism", 0, 0, 32767, true, "max degree of parallelism");
+                        return t;
+                    }
                 case "sys.dm_exec_sessions":
-                {
-                    var t = new Table("dm_exec_sessions", new()
+                    {
+                        var t = new Table("dm_exec_sessions", new()
                         { B("session_id"), S("login_time"), S("host_name"), S("program_name"), S("login_name"), S("status"), B("database_id"), I("is_user_process") });
-                    t.Rows.Add(new object?[] { (long)ses.SessionId, stamp, "android-device", "MSSQL SERVER (unofficial)", "sa", "running", DatabaseIdOf(null, ses) ?? 1L, 1L });
-                    return t;
-                }
+                        t.Rows.Add(new object?[] { (long)ses.SessionId, stamp, "android-device", "MSSQL SERVER (unofficial)", "sa", "running", DatabaseIdOf(null, ses) ?? 1L, 1L });
+                        return t;
+                    }
                 case "sys.dm_exec_connections":
-                {
-                    var t = new Table("dm_exec_connections", new()
-                        { B("session_id"), S("connect_time"), S("net_transport"), S("protocol_type"), S("auth_scheme"), S("encrypt_option") });
-                    t.Rows.Add(new object?[] { (long)ses.SessionId, stamp, "TCP", "TSQL", "SQL", "FALSE" });
-                    return t;
-                }
+                    {
+                        var t = new Table("dm_exec_connections", new()
+        { B("session_id"), S("connect_time"), S("net_transport"), S("protocol_type"), S("auth_scheme"), S("encrypt_option"), B("protocol_version") });
+                        t.Rows.Add(new object?[] { (long)ses.SessionId, stamp, "TCP", "TSQL", "SQL", "FALSE", 1946157060L }); // 0x74000004 = TDS 7.4
+                        return t;
+                    }
                 case "sys.dm_os_host_info":
-                {
-                    var t = new Table("dm_os_host_info", new()
+                    {
+                        var t = new Table("dm_os_host_info", new()
                         { S("host_platform"), S("host_distribution"), S("host_release"), S("host_service_pack_level"), I("host_sku"), I("host_os_language_id") });
-                    t.Rows.Add(new object?[] { "Linux", "Android", "15.0", "", 0L, 1033L });
-                    return t;
-                }
+                        t.Rows.Add(new object?[] { "Linux", "Android", "15.0", "", 0L, 1033L });
+                        return t;
+                    }
                 case "sys.dm_os_sys_info":
-                {
-                    var t = new Table("dm_os_sys_info", new()
+                    {
+                        var t = new Table("dm_os_sys_info", new()
                         { I("cpu_count"), I("hyperthread_ratio"), B("physical_memory_kb"), B("committed_kb"), B("committed_target_kb"), I("scheduler_count"), I("socket_count") });
-                    int cpus = Environment.ProcessorCount;
-                    t.Rows.Add(new object?[] { (long)cpus, (long)cpus, 4194304L, 524288L, 524288L, (long)cpus, 1L });
-                    return t;
-                }
+                        int cpus = Environment.ProcessorCount;
+                        t.Rows.Add(new object?[] { (long)cpus, (long)cpus, 4194304L, 524288L, 524288L, (long)cpus, 1L });
+                        return t;
+                    }
                 case "information_schema.tables":
-                {
-                    var t = new Table("TABLES", new() { S("TABLE_CATALOG"), S("TABLE_SCHEMA"), S("TABLE_NAME"), S("TABLE_TYPE") });
-                    foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                        t.Rows.Add(new object?[] { db.Name, "dbo", tb.Name, "BASE TABLE" });
-                    return t;
-                }
+                    {
+                        var t = new Table("TABLES", new() { S("TABLE_CATALOG"), S("TABLE_SCHEMA"), S("TABLE_NAME"), S("TABLE_TYPE") });
+                        foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                            t.Rows.Add(new object?[] { db.Name, "dbo", tb.Name, "BASE TABLE" });
+                        return t;
+                    }
                 case "information_schema.columns":
-                {
-                    var t = new Table("COLUMNS", new()
+                    {
+                        var t = new Table("COLUMNS", new()
                     {
                         S("TABLE_CATALOG"), S("TABLE_SCHEMA"), S("TABLE_NAME"), S("COLUMN_NAME"),
                         I("ORDINAL_POSITION"), S("DATA_TYPE"), S("IS_NULLABLE")
                     });
-                    foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                        for (int i = 0; i < tb.Columns.Count; i++)
-                        {
-                            var c = tb.Columns[i];
-                            string type = c.Type switch
+                        foreach (var tb in db.Tables.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                            for (int i = 0; i < tb.Columns.Count; i++)
                             {
-                                DataType.Int => "int", DataType.BigInt => "bigint", DataType.Bit => "bit",
-                                DataType.Float => "float", _ => "nvarchar"
-                            };
-                            t.Rows.Add(new object?[] { db.Name, "dbo", tb.Name, c.Name, (long)(i + 1), type, c.NotNull ? "NO" : "YES" });
-                        }
-                    return t;
-                }
+                                var c = tb.Columns[i];
+                                string type = c.Type switch
+                                {
+                                    DataType.Int => "int",
+                                    DataType.BigInt => "bigint",
+                                    DataType.Bit => "bit",
+                                    DataType.Float => "float",
+                                    _ => "nvarchar"
+                                };
+                                t.Rows.Add(new object?[] { db.Name, "dbo", tb.Name, c.Name, (long)(i + 1), type, c.NotNull ? "NO" : "YES" });
+                            }
+                        return t;
+                    }
                 default: return null;
             }
         }
 
-        // Stable synthetic ids: tables get 100 + position (ordered by name); databases 1-based.
         private static long TableObjectId(Database db, string tableName)
         {
             int i = 0;
@@ -540,10 +579,8 @@ namespace MSSQL_Server.Engine
             DataType.BigInt => (127, 8, 19, 0),
             DataType.Bit => (104, 1, 1, 0),
             DataType.Float => (62, 8, 53, 0),
-            _ => (231, len > 0 ? Math.Min(len * 2, 8000) : -1, 0, 0) // 231 = NVARCHAR
+            _ => (231, len > 0 ? Math.Min(len * 2, 8000) : -1, 0, 0)
         };
-
-        // ------------------------------------------------------------ id / name lookups for OBJECT_ID etc.
 
         internal bool DatabaseExists(string name) => databases.ContainsKey(name);
 
@@ -585,8 +622,6 @@ namespace MSSQL_Server.Engine
             return null;
         }
 
-        // ---------------------------------------------------------------- DDL
-
         private StatementResult ExecCreateTable(CreateTable c, SqlSession ses)
         {
             var db = GetDatabase(c.Name.Database ?? ses.Database);
@@ -615,8 +650,6 @@ namespace MSSQL_Server.Engine
             return new StatementResult { Kind = StatementKind.Other };
         }
 
-        // ---------------------------------------------------------------- value coercion
-
         private static object? Coerce(object? v, ColumnDef col, string table)
         {
             if (v == null) return null;
@@ -624,12 +657,12 @@ namespace MSSQL_Server.Engine
             {
                 case DataType.Int:
                 case DataType.BigInt:
-                {
-                    var n = Evaluator.ToNumber(v);
-                    long l = n is long x ? x : (double.IsFinite((double)n) ? (long)Math.Truncate((double)n) : throw Overflow(col));
-                    if (col.Type == DataType.Int && (l < int.MinValue || l > int.MaxValue)) throw Overflow(col);
-                    return l;
-                }
+                    {
+                        var n = Evaluator.ToNumber(v);
+                        long l = n is long x ? x : (double.IsFinite((double)n) ? (long)Math.Truncate((double)n) : throw Overflow(col));
+                        if (col.Type == DataType.Int && (l < int.MinValue || l > int.MaxValue)) throw Overflow(col);
+                        return l;
+                    }
                 case DataType.Bit:
                     if (v is bool b) return b;
                     if (v is string s)
@@ -642,12 +675,12 @@ namespace MSSQL_Server.Engine
                 case DataType.Float:
                     return Convert.ToDouble(Evaluator.ToNumber(v), CultureInfo.InvariantCulture);
                 default:
-                {
-                    string str = Evaluator.ToStr(v);
-                    if (col.Length > 0 && str.Length > col.Length)
-                        throw new SqlException(8152, "String or binary data would be truncated.");
-                    return str;
-                }
+                    {
+                        string str = Evaluator.ToStr(v);
+                        if (col.Length > 0 && str.Length > col.Length)
+                            throw new SqlException(8152, "String or binary data would be truncated.");
+                        return str;
+                    }
             }
         }
 
@@ -684,8 +717,6 @@ namespace MSSQL_Server.Engine
                         $"The duplicate key value is ({string.Join(", ", pk.Select(i => Evaluator.ToStr(row[i]!)))}).");
             }
         }
-
-        // ---------------------------------------------------------------- DML
 
         private RowContext EmptyContext(SqlSession ses) => new() { Engine = this, Session = ses };
 
@@ -797,11 +828,9 @@ namespace MSSQL_Server.Engine
             return new StatementResult { Kind = StatementKind.Delete, RowCount = count };
         }
 
-        // ---------------------------------------------------------------- SELECT
-
         private sealed record OutItem(Expr Expression, string Name);
 
-        private StatementResult ExecSelect(Select s, SqlSession ses)
+        internal StatementResult ExecSelect(Select s, SqlSession ses)
         {
             var schema = new List<SchemaCol>();
             List<object?[]> rows;
@@ -853,7 +882,6 @@ namespace MSSQL_Server.Engine
                 rows = rows.Where(r => Evaluator.IsTrue(Evaluator.Eval(s.Where, Ctx(r)))).ToList();
             }
 
-            // Split "@var = expr" assignments from real output items, then expand the select list.
             var assignItems = s.Items.Where(i => i.AssignVar != null).ToList();
             var rawItems = s.Items.Where(i => i.AssignVar == null).ToList();
 
@@ -945,8 +973,6 @@ namespace MSSQL_Server.Engine
                 }
             }
 
-            // A select list made only of "@var = expr" assignments returns no result set
-            // (T-SQL semantics); the variables keep the value of the last scanned row.
             if (items.Count == 0)
                 return new StatementResult { Kind = StatementKind.Other, RowCount = rows.Count };
 
@@ -973,7 +999,6 @@ namespace MSSQL_Server.Engine
 
             if (s.Top.HasValue) output = output.Take(Math.Max(0, s.Top.Value)).ToList();
 
-            // Build the result set with inferred column types.
             var rs2 = new ResultSet();
             for (int i = 0; i < items.Count; i++)
             {
@@ -992,6 +1017,42 @@ namespace MSSQL_Server.Engine
                 }
                 rs2.Rows.Add(o.Values);
             }
+
+            // UNION [ALL] <right>
+            if (s.UnionRight != null)
+            {
+                var right = ExecSelect(s.UnionRight, ses);
+                if (right.Result != null)
+                {
+                    int leftCols = rs2.Columns.Count;
+                    var rowsToAdd = new List<object?[]>();
+                    foreach (var row in right.Result.Rows)
+                    {
+                        var merged = new object?[leftCols];
+                        for (int i = 0; i < leftCols; i++) merged[i] = i < row.Length ? row[i] : null;
+                        rowsToAdd.Add(merged);
+                    }
+                    if (s.UnionAll)
+                    {
+                        foreach (var r in rowsToAdd) rs2.Rows.Add(r);
+                    }
+                    else
+                    {
+                        var seen = new HashSet<string>();
+                        foreach (var r in rowsToAdd)
+                        {
+                            if (seen.Add(string.Join("\u0001", r.Select(v =>
+                                v == null ? "\0N"
+                                : v is string str ? "s:" + str.TrimEnd(' ').ToLowerInvariant()
+                                : "n:" + Convert.ToDouble(v, CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture)))))
+                            {
+                                rs2.Rows.Add(r);
+                            }
+                        }
+                    }
+                }
+            }
+
             return new StatementResult { Kind = StatementKind.Select, Result = rs2, RowCount = rs2.Rows.Count };
         }
 
@@ -1000,8 +1061,6 @@ namespace MSSQL_Server.Engine
             foreach (var a in assignItems)
                 ctx.Session.Parameters[a.AssignVar!] = Evaluator.Eval(a.Expression!, ctx);
         }
-
-        // ---------------------------------------------------------------- result typing
 
         private static (DataType Type, int Len) InferType(Expr e, List<SchemaCol> schema, IEnumerable<object?> values)
         {
@@ -1017,15 +1076,15 @@ namespace MSSQL_Server.Engine
                 case Func f when (f.Name == "MIN" || f.Name == "MAX") && f.Args.Count == 1:
                     return InferType(f.Args[0], schema, values);
                 case Bin b when b.Op is "+" or "-" or "*" or "/" or "%":
-                {
-                    var l = InferType(b.L, schema, Enumerable.Empty<object?>());
-                    var r = InferType(b.R, schema, Enumerable.Empty<object?>());
-                    if (l.Type == DataType.NVarChar && r.Type == DataType.NVarChar && b.Op == "+") break;
-                    if (l.Type == DataType.Float || r.Type == DataType.Float) return (DataType.Float, 0);
-                    if (l.Type == DataType.BigInt || r.Type == DataType.BigInt) return (DataType.BigInt, 0);
-                    if (l.Type == DataType.NVarChar || r.Type == DataType.NVarChar) break;
-                    return (DataType.Int, 0);
-                }
+                    {
+                        var l = InferType(b.L, schema, Enumerable.Empty<object?>());
+                        var r = InferType(b.R, schema, Enumerable.Empty<object?>());
+                        if (l.Type == DataType.NVarChar && r.Type == DataType.NVarChar && b.Op == "+") break;
+                        if (l.Type == DataType.Float || r.Type == DataType.Float) return (DataType.Float, 0);
+                        if (l.Type == DataType.BigInt || r.Type == DataType.BigInt) return (DataType.BigInt, 0);
+                        if (l.Type == DataType.NVarChar || r.Type == DataType.NVarChar) break;
+                        return (DataType.Int, 0);
+                    }
             }
 
             var list = values.ToList();
